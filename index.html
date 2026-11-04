@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>상가 주소 분석</title>
+<link rel="preconnect" href="https://cdn.jsdelivr.net">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.min.css">
+<style>
+:root{--bg:#f6f5f1;--card:#fff;--ink:#1d1d1b;--sub:#6b6a64;--line:#e4e2db;--accent:#1f5f4a;--accent-soft:#e5efe9;--warn:#9a5b00;--warn-soft:#fbf0dc;--bad:#a8322d;--bad-soft:#f8e3e1}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"Pretendard Variable",Pretendard,system-ui,sans-serif;line-height:1.55;-webkit-font-smoothing:antialiased}
+.wrap{max-width:980px;margin:0 auto;padding:28px 16px 80px}
+header h1{font-size:26px;margin:0 0 4px;letter-spacing:-.02em}
+header p{margin:0;color:var(--sub)}
+form{display:flex;gap:8px;margin:20px 0 8px}
+input[type=text]{flex:1;min-width:0;font:inherit;font-size:16px;padding:13px 14px;border:1px solid var(--line);border-radius:10px;background:#fff}
+input[type=text]:focus{outline:2px solid var(--accent);border-color:transparent}
+button{font:inherit;cursor:pointer;border:0;border-radius:10px;background:var(--accent);color:#fff;padding:0 20px;font-weight:600}
+button:disabled{opacity:.5;cursor:wait}
+.ex{font-size:13px;color:var(--sub)}
+.ex a{color:var(--accent);cursor:pointer;margin-right:10px;text-decoration:underline;text-underline-offset:2px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:20px;margin-top:16px}
+.card h2{font-size:17px;margin:0 0 12px}
+.muted{color:var(--sub);font-size:13px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.kv{background:var(--bg);border-radius:10px;padding:10px 12px}
+.kv b{display:block;font-size:12px;color:var(--sub);font-weight:500}
+.kv span{font-size:16px;font-weight:600}
+.big{font-size:22px!important}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{text-align:left;padding:8px 6px;border-bottom:1px solid var(--line);white-space:nowrap}
+th{font-size:12px;color:var(--sub);font-weight:500}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+tbody tr.click{cursor:pointer}
+tbody tr.click:hover{background:var(--accent-soft)}
+tbody tr.sel{background:var(--accent-soft)}
+.scroll{overflow-x:auto;max-height:420px;overflow-y:auto}
+.tools{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+select,.tools input{font:inherit;font-size:14px;padding:7px 10px;border:1px solid var(--line);border-radius:8px;background:#fff}
+.pill{display:inline-block;font-size:12px;padding:2px 8px;border-radius:99px;font-weight:600}
+.ok{background:var(--accent-soft);color:var(--accent)}
+.mid{background:var(--warn-soft);color:var(--warn)}
+.no{background:var(--bad-soft);color:var(--bad)}
+.biz{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:8px}
+.biz div{border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+.biz strong{display:flex;justify-content:space-between;gap:8px;align-items:center}
+.biz p{margin:4px 0 0;font-size:13px;color:var(--sub)}
+.note{font-size:12px;color:var(--sub);background:var(--bg);border-radius:10px;padding:10px 12px;margin-top:12px}
+.err{background:var(--bad-soft);color:var(--bad);border-radius:10px;padding:12px 14px;margin-top:16px}
+.spin{display:inline-block;width:16px;height:16px;border:2px solid #fff;border-right-color:transparent;border-radius:50%;animation:s 1s linear infinite;vertical-align:-3px}
+@keyframes s{to{transform:rotate(360deg)}}
+footer{margin-top:40px;font-size:12px;color:var(--sub)}
+@media (max-width:560px){form{flex-direction:column}button{padding:13px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <h1>상가 주소 분석</h1>
+  <p>지번 주소 하나로 건축물대장(건물·호실 용도)과 같은 동네 상가 실거래를 한 번에 봅니다. 서울·경기만 됩니다.</p>
+</header>
+<form id="f">
+  <input type="text" id="addr" placeholder="예: 고양시 덕양구 지축동 1059-2" autocomplete="off">
+  <button id="go" type="submit">분석</button>
+</form>
+<div class="ex">예시: <a data-a="고양시 덕양구 지축동 1059-2">고양 지축동 1059-2</a><a data-a="부천시 원미구 중동 1141">부천 중동 1141</a><a data-a="서울 마포구 서교동 395-166">마포 서교동 395-166</a></div>
+<div id="out"></div>
+<footer>자료: 국토교통부 건축HUB 건축물대장, 국토교통부 상업업무용 부동산 실거래가(공공데이터포털). 이 화면의 가격은 신고된 거래의 통계 참고값이며 감정평가가 아닙니다. 업종 가능 여부는 건축물대장 용도만 본 1차 판단이므로, 실제 영업 전 구청 건축과·위생과 등에 확인하세요.</footer>
+</div>
+<script>
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const won = (m) => m == null ? "-" : m >= 10000 ? (m / 10000).toFixed(m >= 100000 ? 0 : 1).replace(/\.0$/, "") + "억" : Math.round(m).toLocaleString() + "만";
+const ymd = (s) => s && s.length === 8 ? `${s.slice(0,4)}.${s.slice(4,6)}.${s.slice(6)}` : (s || "-");
+const median = (a) => { const b = a.filter((x) => x != null && isFinite(x)).sort((x, y) => x - y); if (!b.length) return null; const m = b.length >> 1; return b.length % 2 ? b[m] : (b[m - 1] + b[m]) / 2; };
+
+// 업종 → 그대로 가능한 대장 용도 (건축법 시행령 별표1 기준 1차 판단)
+const BIZ = [
+  { n: "카페·디저트", ok: ["휴게음식점", "제과점", "일반음식점"], gen: ["제1종근린생활시설", "제2종근린생활시설"], tip: "휴게음식점 300㎡ 미만은 1종, 이상은 2종 근린생활시설" },
+  { n: "일반음식점·주점", ok: ["일반음식점"], gen: ["제2종근린생활시설"], tip: "단란·유흥주점은 별도 용도(위락시설 등)" },
+  { n: "편의점·소매", ok: ["소매점", "판매시설", "상점"], gen: ["제1종근린생활시설"], tip: "1,000㎡ 미만 소매점은 1종 근린생활시설" },
+  { n: "미용실·네일", ok: ["미용원", "이용원"], gen: ["제1종근린생활시설"], tip: "" },
+  { n: "학원·교습소", ok: ["학원", "교습소", "교육연구시설"], gen: ["제2종근린생활시설"], tip: "학원 500㎡ 미만은 2종 근린생활시설" },
+  { n: "헬스장·필라테스", ok: ["체력단련장", "운동시설", "체육도장"], gen: ["제2종근린생활시설"], tip: "500㎡ 미만 체력단련장은 2종 근린생활시설" },
+  { n: "사무실", ok: ["사무소", "사무실", "업무시설", "금융업소", "부동산중개사무소"], gen: ["제2종근린생활시설"], tip: "500㎡ 미만 사무소는 2종 근린생활시설" },
+  { n: "병·의원", ok: ["의원", "치과의원", "한의원", "의료시설"], gen: ["제1종근린생활시설"], tip: "" },
+  { n: "동물병원·펫샵", ok: ["동물병원", "동물미용실"], gen: ["제2종근린생활시설"], tip: "" },
+  { n: "소규모 제조", ok: ["제조업소", "공장", "수리점"], gen: ["제2종근린생활시설"], tip: "제조업소 500㎡ 미만은 2종 근린생활시설(배출시설 제한)" },
+];
+const NEIGHBOR = /근린생활|소매점|휴게음식점|제과점|일반음식점|이용원|미용원|세탁소|의원|학원|교습소|체력단련장|체육도장|사무소|금융업소|중개사무소|제조업소|수리점|노래연습장|동물병원|탁구장|목욕장/;
+
+function judge(purpose, etc) {
+  const p = `${purpose || ""} ${etc || ""}`;
+  return BIZ.map((b) => {
+    if (b.ok.some((k) => p.includes(k))) return { ...b, lv: "ok", txt: "대장 용도와 맞음" };
+    if (b.gen.some((k) => p.includes(k))) return { ...b, lv: "ok", txt: "같은 종류의 근린생활시설 안(면적 기준 확인)" };
+    if (NEIGHBOR.test(p)) return { ...b, lv: "mid", txt: "같은 근린생활시설군 — 대장 기재변경 신청으로 가능할 수 있음" };
+    return { ...b, lv: "no", txt: "용도변경(신고·허가) 필요" };
+  });
+}
+
+let DATA = null;
+$("#f").onsubmit = (e) => { e.preventDefault(); run($("#addr").value); };
+document.querySelectorAll(".ex a").forEach((a) => a.onclick = () => { $("#addr").value = a.dataset.a; run(a.dataset.a); });
+
+async function run(addr) {
+  addr = addr.trim(); if (!addr) return;
+  const go = $("#go"); go.disabled = true; go.innerHTML = '<span class="spin"></span>';
+  $("#out").innerHTML = '<div class="card muted">건축물대장과 실거래를 불러오는 중입니다. 처음 보는 건물은 10초쯤 걸릴 수 있어요.</div>';
+  try {
+    const r = await fetch("/api/lookup?address=" + encodeURIComponent(addr));
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.오류 || "조회 실패");
+    DATA = d; render(d);
+    history.replaceState(null, "", "?q=" + encodeURIComponent(addr));
+  } catch (e) {
+    $("#out").innerHTML = `<div class="err">${esc(e.message)}</div>`;
+  } finally { go.disabled = false; go.textContent = "분석"; }
+}
+
+function render(d) {
+  let h = "";
+  if (d.결과 === "대장없음") {
+    h += `<div class="card"><h2>건축물대장이 없습니다</h2><p class="muted">${esc(d.시군구)} ${esc(d.동)} ${esc(d.지번)} — 지번이 맞는지, 건물이 없는 땅인지 확인하세요. 아래 동네 실거래는 볼 수 있어요.</p></div>`;
+  } else {
+    for (const t of d.건물) {
+      h += `<div class="card"><h2>${esc(t.building_name || "건물")} <span class="muted">${esc(t.road_address || t.address || "")}</span></h2>
+      <div class="grid">
+        <div class="kv"><b>주용도</b><span>${esc(t.main_purpose || "-")}</span></div>
+        <div class="kv"><b>연면적</b><span>${t.total_area ? Number(t.total_area).toLocaleString() + "㎡" : "-"}</span></div>
+        <div class="kv"><b>층수</b><span>지상 ${t.ground_floors ?? "?"} / 지하 ${t.under_floors ?? "?"}</span></div>
+        <div class="kv"><b>사용승인일</b><span>${ymd(t.approval_date)}</span></div>
+        <div class="kv"><b>구조</b><span>${esc(t.structure || "-")}</span></div>
+      </div>
+      ${t.etc_purpose ? `<p class="muted" style="margin:10px 0 0">기타용도: ${esc(t.etc_purpose)}</p>` : ""}</div>`;
+    }
+    h += unitsCard(d.호실);
+    h += `<div id="judge"></div>`;
+  }
+  h += tradesCard(d);
+  $("#out").innerHTML = h;
+  bindUnits();
+  if (d.결과 !== "대장없음") {
+    const t = d.건물[0] || {};
+    const solo = !(d.호실 || []).some((u) => u.area_type === "전유");
+    if (solo) showJudge(t.main_purpose, t.etc_purpose, "건물 전체(호실 구분 없음)");
+  }
+}
+
+function unitsCard(units) {
+  const own = (units || []).filter((u) => u.area_type === "전유");
+  if (!own.length) return "";
+  const floors = [...new Set(own.map((u) => u.floor_name).filter(Boolean))];
+  return `<div class="card"><h2>호실별 용도 <span class="muted">${own.length}개 호실 · 줄을 누르면 업종 판단</span></h2>
+  <div class="tools"><select id="fl"><option value="">전체 층</option>${floors.map((f) => `<option>${esc(f)}</option>`).join("")}</select>
+  <input id="ho" placeholder="호수 검색 (예: 102)"></div>
+  <div class="scroll"><table><thead><tr><th>동</th><th>층</th><th>호</th><th>용도</th><th class="num">전용면적</th></tr></thead><tbody id="ub"></tbody></table></div></div>`;
+}
+
+function bindUnits() {
+  const ub = $("#ub"); if (!ub) return;
+  const own = DATA.호실.filter((u) => u.area_type === "전유");
+  const flNum = (f) => { const m = /(지하)?\s*(\d+)/.exec(f || ""); return m ? (m[1] ? -1 : 1) * Number(m[2]) : 0; };
+  own.sort((a, b) => flNum(a.floor_name) - flNum(b.floor_name) || String(a.ho_name).localeCompare(String(b.ho_name), "ko", { numeric: true }));
+  const draw = () => {
+    const fl = $("#fl").value, ho = $("#ho").value.trim();
+    const list = own.filter((u) => (!fl || u.floor_name === fl) && (!ho || String(u.ho_name || "").includes(ho)));
+    ub.innerHTML = list.map((u, i) => `<tr class="click" data-i="${own.indexOf(u)}"><td>${esc(u.dong_name || "")}</td><td>${esc(u.floor_name || "")}</td><td>${esc(u.ho_name || "")}</td><td>${esc(u.purpose || "")}${u.purpose_etc && u.purpose_etc !== u.purpose ? ` <span class="muted">${esc(u.purpose_etc)}</span>` : ""}</td><td class="num">${u.area != null ? Number(u.area).toLocaleString() + "㎡" : ""}</td></tr>`).join("") || `<tr><td colspan="5" class="muted">맞는 호실이 없어요</td></tr>`;
+  };
+  $("#fl").onchange = draw; $("#ho").oninput = draw; draw();
+  ub.onclick = (e) => {
+    const tr = e.target.closest("tr[data-i]"); if (!tr) return;
+    ub.querySelectorAll("tr").forEach((r) => r.classList.remove("sel")); tr.classList.add("sel");
+    const u = own[+tr.dataset.i];
+    showJudge(u.purpose, u.purpose_etc, `${u.dong_name ? u.dong_name + " " : ""}${u.ho_name || ""} (${u.floor_name || ""}, ${u.area ?? "?"}㎡)`);
+  };
+}
+
+function showJudge(purpose, etc, title) {
+  const rows = judge(purpose, etc);
+  const lab = { ok: "가능", mid: "검토", no: "변경 필요" };
+  $("#judge").innerHTML = `<div class="card"><h2>이 공간에서 할 수 있는 업종 <span class="muted">${esc(title)} · 대장 용도: ${esc(purpose || "-")}</span></h2>
+  <div class="biz">${rows.map((b) => `<div><strong>${b.n}<span class="pill ${b.lv}">${lab[b.lv]}</span></strong><p>${b.txt}${b.tip ? " · " + b.tip : ""}</p></div>`).join("")}</div>
+  <div class="note">건축물대장의 용도만 보고 한 1차 판단입니다. 같은 근린생활시설군 안의 변경은 보통 건축물대장 기재내용 변경 신청으로 되지만, 면적 기준·주차장·정화조·학교 근처 제한(교육환경보호구역)·소방 기준에 따라 달라질 수 있습니다. 계약 전 구청 건축과와 위생과(음식점) 등에 꼭 확인하세요.</div></div>`;
+  $("#judge").scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+function tradesCard(d) {
+  const all = (d.실거래 || []).filter((t) => !String(t.share_type || "").includes("지분"));
+  const yr = new Date(Date.now() - 365 * 86400000).toISOString().slice(0, 10);
+  const y1 = all.filter((t) => t.deal_date >= yr);
+  const med = median(y1.map((t) => t.price_per_m2));
+  const f1 = y1.filter((t) => t.floor === "1"), fo = y1.filter((t) => t.floor && t.floor !== "1");
+  const bun = String(d.지번 || "").split("-")[0];
+  const same = all.filter((t) => t.jibun && (t.jibun === d.지번 || t.jibun === bun || t.jibun === d.지번.replace(/-0$/, "")));
+  const pyeong = (v) => v == null ? "-" : won(v * 3.3058) + "원/평";
+  const row = (t) => `<tr><td>${t.deal_date}</td><td>${esc(t.jibun || "")}</td><td>${esc(t.building_type || "")}</td><td>${esc(t.building_use || "")}</td><td>${esc(t.floor || "")}</td><td class="num">${t.building_area ?? ""}㎡</td><td class="num">${won(t.deal_amount_10k)}</td><td class="num">${t.price_per_m2 ? won(t.price_per_m2) : "-"}</td></tr>`;
+  return `<div class="card"><h2>${esc(d.시군구 || "")} ${esc(d.동 || "")} 상가 매매 실거래 <span class="muted">최근 2년 ${all.length}건</span></h2>
+  <div class="grid">
+    <div class="kv"><b>최근 1년 거래</b><span class="big">${y1.length}건</span></div>
+    <div class="kv"><b>㎡당 중간값(1년)</b><span class="big">${med ? won(med) + "원" : "-"}</span><b>${pyeong(med)}</b></div>
+    <div class="kv"><b>1층 ㎡당 중간값</b><span>${f1.length ? won(median(f1.map((t) => t.price_per_m2))) + "원" : "-"}</span><b>${f1.length}건</b></div>
+    <div class="kv"><b>그 외 층 ㎡당 중간값</b><span>${fo.length ? won(median(fo.map((t) => t.price_per_m2))) + "원" : "-"}</span><b>${fo.length}건</b></div>
+  </div>
+  ${same.length ? `<h2 style="margin-top:18px">같은 지번 거래 ${same.length}건</h2><div class="scroll"><table><thead>${thead()}</thead><tbody>${same.map(row).join("")}</tbody></table></div>` : ""}
+  <h2 style="margin-top:18px">최근 거래</h2>
+  ${all.length ? `<div class="scroll"><table><thead>${thead()}</thead><tbody>${all.slice(0, 30).map(row).join("")}</tbody></table></div>` : `<p class="muted">이 동네에는 최근 2년 상가 매매 신고가 없어요.</p>`}
+  <div class="note">지분 거래와 해제(취소)된 거래는 뺐습니다. 지번은 신고 자료에서 일부 가려져 있을 수 있어요. 가격은 신고 금액의 통계 참고값이며 감정평가가 아닙니다.</div></div>`;
+}
+const thead = () => `<tr><th>계약일</th><th>지번</th><th>유형</th><th>건물용도</th><th>층</th><th class="num">면적</th><th class="num">금액</th><th class="num">㎡당</th></tr>`;
+
+const q = new URLSearchParams(location.search).get("q");
+if (q) { $("#addr").value = q; run(q); }
+</script>
+</body>
+</html>
