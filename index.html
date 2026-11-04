@@ -136,6 +136,7 @@ function render(d) {
       ${t.etc_purpose ? `<p class="muted" style="margin:10px 0 0">기타용도: ${esc(t.etc_purpose)}</p>` : ""}</div>`;
     }
     h += unitsCard(d.호실);
+    h += floorsCard(d.호실);
     h += `<div id="judge"></div>`;
   }
   h += tradesCard(d);
@@ -143,11 +144,40 @@ function render(d) {
   $("#out").innerHTML = h;
   if (d.법정동코드) loadStores(300);
   bindUnits();
+  bindFloors();
   if (d.결과 !== "대장없음") {
     const t = d.건물[0] || {};
-    const solo = !(d.호실 || []).some((u) => u.area_type === "전유");
-    if (solo) showJudge(t.main_purpose, t.etc_purpose, "건물 전체(호실 구분 없음)");
+    const hasUnits = (d.호실 || []).some((u) => u.area_type === "전유");
+    const hasFloors = (d.호실 || []).some((u) => u.area_type === "층별");
+    if (!hasUnits && hasFloors) { const f1 = document.querySelector('#fb tr[data-f1="1"]') || document.querySelector("#fb tr[data-i]"); if (f1) f1.click(); }
+    else if (!hasUnits) showJudge(t.main_purpose, t.etc_purpose, "건물 전체(호실·층 정보 없음)");
   }
+}
+
+function floorNum(f) {
+  f = String(f ?? "").trim();
+  if (/옥탑|옥상|PH/i.test(f)) return 1000 + (Number((f.match(/\d+/) || [0])[0]));
+  const m = /^(지하|지|B)?\s*(\d+)/i.exec(f);
+  return m ? (m[1] ? -1 : 1) * Number(m[2]) : 0;
+}
+
+function floorsCard(units) {
+  const fl = (units || []).filter((u) => u.area_type === "층별");
+  if (!fl.length || (units || []).some((u) => u.area_type === "전유")) return "";
+  return `<div class="card"><h2>층별 용도 <span class="muted">호실 구분이 없는 건물 · 층을 누르면 업종 판단</span></h2>
+  <div class="scroll"><table><thead><tr><th>동</th><th>층</th><th>용도</th><th class="num">면적</th></tr></thead><tbody id="fb"></tbody></table></div></div>`;
+}
+
+function bindFloors() {
+  const fb = $("#fb"); if (!fb) return;
+  const fl = DATA.호실.filter((u) => u.area_type === "층별").sort((a, b) => floorNum(a.floor_name) - floorNum(b.floor_name));
+  fb.innerHTML = fl.map((u, i) => `<tr class="click" data-i="${i}" data-f1="${isF1(u.floor_name) ? 1 : 0}"><td>${esc(u.dong_name || "")}</td><td>${esc(u.floor_name || "")}</td><td>${esc(u.purpose || "")}${u.purpose_etc && u.purpose_etc !== u.purpose ? ` <span class="muted">${esc(u.purpose_etc)}</span>` : ""}</td><td class="num">${u.area != null ? Number(u.area).toLocaleString() + "㎡" : ""}</td></tr>`).join("");
+  fb.onclick = (e) => {
+    const tr = e.target.closest("tr[data-i]"); if (!tr) return;
+    fb.querySelectorAll("tr").forEach((r) => r.classList.remove("sel")); tr.classList.add("sel");
+    const u = fl[+tr.dataset.i];
+    showJudge(u.purpose, u.purpose_etc, `${u.dong_name ? u.dong_name + " " : ""}${u.floor_name || ""} (${u.area ?? "?"}㎡)`);
+  };
 }
 
 function unitsCard(units) {
@@ -163,7 +193,7 @@ function unitsCard(units) {
 function bindUnits() {
   const ub = $("#ub"); if (!ub) return;
   const own = DATA.호실.filter((u) => u.area_type === "전유");
-  const flNum = (f) => { const m = /(지하)?\s*(\d+)/.exec(f || ""); return m ? (m[1] ? -1 : 1) * Number(m[2]) : 0; };
+  const flNum = floorNum;
   own.sort((a, b) => flNum(a.floor_name) - flNum(b.floor_name) || String(a.ho_name).localeCompare(String(b.ho_name), "ko", { numeric: true }));
   const draw = () => {
     const fl = $("#fl").value, ho = $("#ho").value.trim();
@@ -205,7 +235,7 @@ const MIN_N = 5;
 const quant = (a, q) => { const b = a.filter((x) => x != null && isFinite(x)).sort((x, y) => x - y); if (!b.length) return null; const i = (b.length - 1) * q, lo = Math.floor(i), hi = Math.ceil(i); return b[lo] + (b[hi] - b[lo]) * (i - lo); };
 const stat = (rows) => { const v = rows.map((t) => Number(t.price_per_m2)).filter((x) => x > 0); return { n: v.length, med: quant(v, .5), q1: quant(v, .25), q3: quant(v, .75) }; };
 const isF1 = (f) => /^(지상)?\s*1\s*(층)?$/.test(String(f ?? "").trim());
-const isUnder = (f) => /지하|^B|^-/.test(String(f ?? "").trim());
+const isUnder = (f) => /^지|지하|^B|^-/.test(String(f ?? "").trim());
 let REF = null;
 
 function tradesCard(d) {

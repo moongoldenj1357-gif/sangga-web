@@ -294,7 +294,11 @@ async function processLot(lot) {
     const p = { sigunguCd: sig, bjdongCd: bj, platGbCd: lot.plat, bun, ji };
     const titles = (await fetchAll("getBrTitleInfo", p, 300)).items;
     if (!titles.length) continue;
-    const units = await fetchAll("getBrExposPubuseAreaInfo", p, UNIT_CAP);
+    const [units, floors] = await Promise.all([
+      fetchAll("getBrExposPubuseAreaInfo", p, UNIT_CAP),
+      fetchAll("getBrFlrOulnInfo", p, 1e3)
+      // 층별개요: 일반건물의 층마다 용도·면적
+    ]);
     const bjd = sig + bj;
     const trows = await Promise.all(titles.map(async (it) => ({
       mgm_pk: pick(it, "mgmBldrgstPk") ?? await sha1([bjd, bun, ji, pick(it, "dongNm")].join("|")),
@@ -334,6 +338,27 @@ async function processLot(lot) {
       });
     }
     await upsert("building_titles", trows, "mgm_pk");
+    let floorCount = 0;
+    for (const it of floors.items) {
+      const fname = pick(it, "flrNoNm") ?? `${pick(it, "flrGbCdNm") ?? ""} ${pick(it, "flrNo") ?? ""}층`.trim();
+      const id = await sha1(["층별", ...["mgmBldrgstPk", "dongNm", "flrGbCdNm", "flrNo", "flrNoNm", "mainPurpsCdNm", "etcPurps", "area"].map((k) => pick(it, k) ?? "")].join("|"));
+      umap.set(id, {
+        id,
+        mgm_pk: pick(it, "mgmBldrgstPk"),
+        bjd_code: bjd,
+        bun,
+        ji,
+        dong_name: pick(it, "dongNm"),
+        ho_name: null,
+        floor_name: fname,
+        area_type: "층별",
+        purpose: pick(it, "mainPurpsCdNm"),
+        purpose_etc: pick(it, "etcPurps"),
+        area: num(pick(it, "area")),
+        raw: it
+      });
+      floorCount++;
+    }
     if (umap.size) await upsert("building_units", [...umap.values()], "id");
     const purposes = {};
     for (const u of umap.values()) {
@@ -355,7 +380,8 @@ async function processLot(lot) {
         사용승인일: t.approval_date
       })),
       건물수: trows.length,
-      호실면적_줄수: umap.size,
+      호실면적_줄수: umap.size - floorCount,
+      층별개요_줄수: floorCount,
       ...units.total > UNIT_CAP ? { 주의: `호실 정보가 ${units.total}줄이라 앞의 ${UNIT_CAP}줄만 저장했습니다.` } : {},
       전유부_용도별_호실수: purposes
     };
@@ -364,7 +390,7 @@ async function processLot(lot) {
 }
 const pad4 = (s) => String(s).padStart(4, "0");
 async function cached(lot) {
-  const since = new Date(Date.now() - 30 * 864e5).toISOString();
+  const since = new Date(Math.max(Date.now() - 30 * 864e5, Date.parse("2026-11-04T06:00:00Z"))).toISOString();
   for (const [sig, bj, dongName] of lot.tries) {
     const bjd = sig + bj;
     const q = `bjd_code=eq.${bjd}&bun=eq.${pad4(lot.bun)}&ji=eq.${pad4(lot.ji)}`;
@@ -439,7 +465,7 @@ async function handler(req, res) {
       if (r) {
         const t = lot.tries.find((x) => x[0] + x[1] === r.법정동코드) ?? lot.tries[0];
         hit = { bjd: r.법정동코드, sig: t[0], dongName: t[2], titles: [] };
-        await log(address, r.건물수 + r.호실면적_줄수, true, "사이트 조회");
+        await log(address, r.건물수 + r.호실면적_줄수 + (r.층별개요_줄수 ?? 0), true, "사이트 조회");
       }
     }
     const sig = lot.tries[0][0];
