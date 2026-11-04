@@ -52,6 +52,24 @@ select,.tools input{font:inherit;font-size:14px;padding:7px 10px;border:1px soli
 @keyframes s{to{transform:rotate(360deg)}}
 footer{margin-top:40px;font-size:12px;color:var(--sub)}
 @media (max-width:560px){form{flex-direction:column}button{padding:13px}}
+#chatBtn{position:fixed;right:16px;bottom:16px;z-index:50;padding:14px 18px;border-radius:99px;box-shadow:0 6px 20px rgba(0,0,0,.18);font-size:15px}
+#chat{position:fixed;right:16px;bottom:16px;z-index:60;width:min(420px,calc(100vw - 32px));height:min(620px,calc(100vh - 32px));background:#fff;border:1px solid var(--line);border-radius:16px;box-shadow:0 12px 40px rgba(0,0,0,.2);display:none;flex-direction:column;overflow:hidden}
+#chat.open{display:flex}
+#chat header{display:flex;justify-content:space-between;align-items:center;padding:12px 14px;border-bottom:1px solid var(--line);background:var(--accent);color:#fff}
+#chat header b{font-size:15px}
+#chat header button{background:transparent;padding:4px 8px;font-size:18px}
+#cm{flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:10px;background:var(--bg)}
+.mg{max-width:88%;padding:10px 12px;border-radius:12px;font-size:14px;line-height:1.6;word-break:keep-all;overflow-wrap:anywhere}
+.mg.u{align-self:flex-end;background:var(--accent);color:#fff;border-bottom-right-radius:4px}
+.mg.a{align-self:flex-start;background:#fff;border:1px solid var(--line);border-bottom-left-radius:4px}
+.mg.a ul{margin:4px 0;padding-left:18px}
+.mg .cp{display:block;margin-top:6px;background:none;color:var(--sub);padding:0;font-size:12px;font-weight:500;text-decoration:underline}
+.chips{display:flex;gap:6px;flex-wrap:wrap}
+.chips button{background:#fff;color:var(--accent);border:1px solid var(--accent);padding:6px 10px;font-size:13px;font-weight:500}
+#cf{display:flex;flex-direction:row!important;gap:6px;padding:10px;border-top:1px solid var(--line)}
+#ci{flex:1;min-width:0;font:inherit;font-size:15px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;resize:none;height:44px}
+#cf button{padding:0 14px!important}
+#cn{font-size:11px;color:var(--sub);padding:0 12px 8px}
 </style>
 </head>
 <body>
@@ -67,6 +85,13 @@ footer{margin-top:40px;font-size:12px;color:var(--sub)}
 <div class="ex">예시: <a data-a="고양시 덕양구 지축동 1059-2">고양 지축동 1059-2</a><a data-a="부천시 원미구 중동 1141">부천 중동 1141</a><a data-a="서울 마포구 서교동 395-166">마포 서교동 395-166</a></div>
 <div id="out"></div>
 <footer>자료: 국토교통부 건축HUB 건축물대장, 국토교통부 상업업무용 부동산 실거래가(공공데이터포털). 이 화면의 가격은 신고된 거래의 통계 참고값이며 감정평가가 아닙니다. 업종 가능 여부는 건축물대장 용도만 본 1차 판단이므로, 실제 영업 전 구청 건축과·위생과 등에 확인하세요.</footer>
+</div>
+<button id="chatBtn" type="button">💬 AI에게 질문</button>
+<div id="chat" role="dialog" aria-label="AI 상담">
+  <header><b>AI 상담 <span style="font-weight:400;font-size:12px;opacity:.85">화면 자료를 보고 답해요</span></b><button type="button" id="cx" aria-label="닫기">✕</button></header>
+  <div id="cm"></div>
+  <form id="cf"><textarea id="ci" placeholder="예: 이 호실에 카페 차려도 되나요?" rows="1"></textarea><button type="submit" id="cs">보내기</button></form>
+  <div id="cn">AI 답변은 참고용이며 감정평가·법률자문이 아닙니다. 중요한 결정 전 전문가·구청에 확인하세요.</div>
 </div>
 <script>
 const $ = (s) => document.querySelector(s);
@@ -120,6 +145,7 @@ async function run(addr) {
 }
 
 function render(d) {
+  SEL = null; ST_SUM = null; TR_SUM = null;
   let h = "";
   if (d.결과 === "대장없음") {
     h += `<div class="card"><h2>건축물대장이 없습니다</h2><p class="muted">${esc(d.시군구)} ${esc(d.동)} ${esc(d.지번)} — 지번이 맞는지, 건물이 없는 땅인지 확인하세요. 아래 동네 실거래는 볼 수 있어요.</p></div>`;
@@ -209,6 +235,14 @@ function bindUnits() {
   };
 }
 
+function priceText(u) {
+  if (!u || !u.area || !REF) return "";
+  const r = isF1(u.floor_name) ? REF.f1 : REF.fo;
+  if (!r.med) return "";
+  const a = Number(u.area);
+  return `전용 ${a}㎡ 기준 매매 참고 범위 ${won((r.q1 ?? r.med) * a)}~${won((r.q3 ?? r.med) * a)}원(중간 ${won(r.med * a)}원). 근거: ${r.src}의 ㎡당 가운데 절반 ${won(r.q1 ?? r.med)}~${won(r.q3 ?? r.med)}원. 표본 ${r.n}건.`;
+}
+
 function priceBox(u) {
   if (!u || !u.area || !REF) return "";
   const r = isF1(u.floor_name) ? REF.f1 : REF.fo;
@@ -224,6 +258,7 @@ function priceBox(u) {
 function showJudge(purpose, etc, title, unit) {
   const rows = judge(purpose, etc);
   const lab = { ok: "가능", mid: "검토", no: "변경 필요" };
+  SEL = { title, purpose, etc, verdict: rows.map((b) => `${b.n}: ${lab[b.lv]} (${b.txt})`), price: unit ? priceText(unit) : "" };
   $("#judge").innerHTML = `<div class="card"><h2>이 공간에서 할 수 있는 업종 <span class="muted">${esc(title)} · 대장 용도: ${esc(purpose || "-")}</span></h2>
   ${priceBox(unit)}
   <div class="biz">${rows.map((b) => `<div><strong>${b.n}<span class="pill ${b.lv}">${lab[b.lv]}</span></strong><p>${b.txt}${b.tip ? " · " + b.tip : ""}</p></div>`).join("")}</div>
@@ -236,7 +271,7 @@ const quant = (a, q) => { const b = a.filter((x) => x != null && isFinite(x)).so
 const stat = (rows) => { const v = rows.map((t) => Number(t.price_per_m2)).filter((x) => x > 0); return { n: v.length, med: quant(v, .5), q1: quant(v, .25), q3: quant(v, .75) }; };
 const isF1 = (f) => /^(지상)?\s*1\s*(층)?$/.test(String(f ?? "").trim());
 const isUnder = (f) => /^지|지하|^B|^-/.test(String(f ?? "").trim());
-let REF = null;
+let REF = null, TR_SUM = null, ST_SUM = null, SEL = null;
 
 function tradesCard(d) {
   const clean = (r) => !String(r.share_type || "").includes("지분");
@@ -249,6 +284,7 @@ function tradesCard(d) {
     g1: stat(gu.filter((t) => isF1(t.floor))), gO: stat(gu.filter((t) => t.floor && !isF1(t.floor))), gAll: stat(gu),
   };
   const dn = esc(d.동 || "이 동네"), gn = esc(d.시군구 || "구");
+  TR_SUM = { dn: d.동, gn: d.시군구, y1n: y1.length, alln: all.length, S };
   REF = {
     f1: S.d1.n >= MIN_N ? { ...S.d1, src: `${dn} 1층 거래 ${S.d1.n}건` } : { ...S.g1, src: `${dn} 1층 거래가 ${S.d1.n}건뿐이라 ${gn} 전체 1층 거래 ${S.g1.n}건` },
     fo: S.dO.n >= MIN_N ? { ...S.dO, src: `${dn} 2층 이상·지하 거래 ${S.dO.n}건` } : { ...S.gO, src: `${dn} 그 외 층 거래가 ${S.dO.n}건뿐이라 ${gn} 전체 그 외 층 거래 ${S.gO.n}건` },
@@ -257,6 +293,7 @@ function tradesCard(d) {
   const val = (s) => s.med ? won(s.med) + "원" : "-";
   const bun = String(d.지번 || "").split("-")[0];
   const same = all.filter((t) => t.jibun && (t.jibun === d.지번 || t.jibun === bun || t.jibun === String(d.지번).replace(/-0$/, "")));
+  TR_SUM.same = same.slice(0, 10);
   const pyeong = (v) => v == null ? "-" : won(v * 3.3058) + "원/평";
   const row = (t) => `<tr><td>${t.deal_date}</td><td>${esc(t.jibun || "")}</td><td>${esc(t.building_type || "")}</td><td>${esc(t.building_use || "")}</td><td>${esc(t.floor || "")}</td><td class="num">${t.building_area ?? ""}㎡</td><td class="num">${won(t.deal_amount_10k)}</td><td class="num">${t.price_per_m2 ? won(t.price_per_m2) : "-"}</td></tr>`;
   return `<div class="card"><h2>${gn} ${dn} 상가 매매 실거래 <span class="muted">최근 2년 ${all.length}건</span></h2>
@@ -320,7 +357,9 @@ function storesCard(x, radius) {
   const c = x.중심;
   const cats = CATS.map((k) => { const m = list.filter(k.f); const near = m.map((s) => distM(c, s)).sort((a, b) => a - b)[0]; return { ...k, cnt: m.length, near }; });
   const top = Object.entries(list.reduce((a, s) => (a[s.소분류 || "기타"] = (a[s.소분류 || "기타"] || 0) + 1, a), {})).sort((a, b) => b[1] - a[1]).slice(0, 12);
-  const here = (x.이_지번_점포 || []).slice().sort((a, b) => String(a.층).localeCompare(String(b.층), "ko", { numeric: true }) || String(a.호).localeCompare(String(b.호), "ko", { numeric: true }));
+  const hereSorted = (x.이_지번_점포 || []).slice().sort((a, b) => String(a.층).localeCompare(String(b.층), "ko", { numeric: true }) || String(a.호).localeCompare(String(b.호), "ko", { numeric: true }));
+  const here = hereSorted;
+  ST_SUM = { radius, total: x.반경_점포수, cats: cats.map((k) => `${k.n} ${k.cnt}곳${k.cnt ? `(가장 가까운 곳 약 ${k.near}m)` : ""}`), top: top.map(([k, v]) => `${k} ${v}`), here: here.slice(0, 40).map((s) => `${s.층 ?? "?"}층 ${s.호 ?? ""} ${s.이름} (${s.소분류 || ""})`) };
   return `<div class="card"><h2>주변 점포 <span class="muted">반경 ${radius}m · ${x.반경_점포수.toLocaleString()}곳 · 위치 기준: ${esc(x.위치기준)}</span></h2>
   <div class="tools">${btns}</div>
   <div class="grid">${cats.map((k) => `<div class="kv"><b>${k.n}</b><span class="big">${k.cnt}</span><b>${k.cnt ? `가장 가까운 곳 약 ${k.near}m` : "없음"}</b></div>`).join("")}</div>
@@ -330,6 +369,87 @@ function storesCard(x, radius) {
   <div class="scroll" style="max-height:300px"><table><thead><tr><th>층</th><th>호</th><th>상호</th><th>업종</th></tr></thead><tbody>${here.map((s) => `<tr><td>${esc(s.층 ?? "")}</td><td>${esc(s.호 ?? "")}</td><td>${esc(s.이름)}</td><td>${esc(s.소분류 || "")}</td></tr>`).join("")}</tbody></table></div>` : ""}
   <div class="note">자료: 소상공인시장진흥공단 상가(상권)정보(분기마다 갱신). 문 닫은 점포가 남아 있거나 새 점포가 빠져 있을 수 있어요. ${x.주의 ? esc(x.주의) : ""}</div></div>`;
 }
+
+// ── AI 상담 채팅
+const CHAT = [];
+const md = (t) => {
+  const lines = esc(t).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").split("\n");
+  let h = "", inList = false;
+  for (const l of lines) {
+    const m = /^\s*(?:[-•*]|\d+[.)])\s+(.*)/.exec(l);
+    if (m) { if (!inList) { h += "<ul>"; inList = true; } h += `<li>${m[1]}</li>`; }
+    else { if (inList) { h += "</ul>"; inList = false; } h += l.trim() ? l + "<br>" : "<br>"; }
+  }
+  return (inList ? h + "</ul>" : h).replace(/(<br>)+$/, "");
+};
+function pageContext() {
+  if (!DATA) return "";
+  const d = DATA, L = [];
+  L.push(`조회 주소: ${d.주소} (법정동코드 ${d.법정동코드 || "-"}, ${d.시군구} ${d.동} ${d.지번})`);
+  for (const t of d.건물 || []) L.push(`건물: ${t.building_name || "(이름 없음)"} / 도로명 ${t.road_address || "-"} / 주용도 ${t.main_purpose} / 기타용도 ${t.etc_purpose || "-"} / 연면적 ${t.total_area}㎡ / 지상 ${t.ground_floors}층 지하 ${t.under_floors}층 / 사용승인 ${t.approval_date} / 구조 ${t.structure}`);
+  if (d.결과 === "대장없음") L.push("이 지번에는 건축물대장이 없습니다.");
+  const own = (d.호실 || []).filter((u) => u.area_type === "전유");
+  const fl = (d.호실 || []).filter((u) => u.area_type === "층별");
+  if (own.length) {
+    const cnt = {}; own.forEach((u) => cnt[u.purpose || "미상"] = (cnt[u.purpose || "미상"] || 0) + 1);
+    L.push(`전유부 호실 ${own.length}개, 용도별: ${Object.entries(cnt).map(([k, v]) => `${k} ${v}`).join(", ")}`);
+    L.push("호실 목록(층/호/용도/전용면적): " + own.slice(0, 80).map((u) => `${u.dong_name ? u.dong_name + "동 " : ""}${u.floor_name}/${u.ho_name}/${u.purpose}/${u.area}㎡`).join("; "));
+  }
+  if (fl.length) L.push("층별개요(층/용도/면적): " + fl.map((u) => `${u.floor_name}/${u.purpose}${u.purpose_etc && u.purpose_etc !== u.purpose ? "(" + u.purpose_etc + ")" : ""}/${u.area}㎡`).join("; "));
+  if (SEL) {
+    L.push(`사용자가 고른 공간: ${SEL.title}, 대장 용도 ${SEL.purpose || "-"}${SEL.etc ? " / " + SEL.etc : ""}`);
+    L.push("화면의 업종 1차 판단: " + SEL.verdict.join(" | "));
+    if (SEL.price) L.push("화면의 시세 참고 범위: " + SEL.price);
+  }
+  if (TR_SUM) {
+    const S = TR_SUM.S, f = (s) => s.med ? `${won(s.med)}원/㎡(${s.n}건, 가운데 절반 ${won(s.q1)}~${won(s.q3)})` : `없음(${s.n}건)`;
+    L.push(`상가 매매 실거래(지분·해제 제외): ${TR_SUM.dn} 최근 2년 ${TR_SUM.alln}건, 최근 1년 ${TR_SUM.y1n}건`);
+    L.push(`${TR_SUM.dn} 최근 1년 ㎡당 중간값 전체 ${f(S.dAll)}, 1층 ${f(S.d1)}, 그 외 층 ${f(S.dO)}`);
+    L.push(`${TR_SUM.gn} 전체 최근 1년 ㎡당 중간값 전체 ${f(S.gAll)}, 1층 ${f(S.g1)}, 그 외 층 ${f(S.gO)}`);
+    if (TR_SUM.same.length) L.push("같은 지번 거래: " + TR_SUM.same.map((t) => `${t.deal_date} ${t.floor}층 ${t.building_area}㎡ ${won(t.deal_amount_10k)}원`).join("; "));
+  }
+  if (ST_SUM) {
+    L.push(`주변 점포(소상공인 상가정보, 반경 ${ST_SUM.radius}m) 총 ${ST_SUM.total}곳: ${ST_SUM.cats.join(", ")}`);
+    L.push("많은 업종: " + ST_SUM.top.join(", "));
+    if (ST_SUM.here.length) L.push("이 지번 등록 점포: " + ST_SUM.here.join("; "));
+  }
+  return L.join("\n").slice(0, 9000);
+}
+function chatSuggest() {
+  if (!DATA) return ["근린생활시설 1종과 2종은 뭐가 달라요?", "용도변경과 기재변경 차이는?", "상가 낙찰받으면 세금이 얼마나 나와요?"];
+  const sp = SEL ? SEL.title.split(" (")[0] : "이 건물";
+  return [`${sp}에서 카페를 하려면 뭘 확인해야 해요?`, "이 동네 실거래 숫자를 쉽게 풀어 주세요", "주변 점포를 보면 어떤 업종이 경쟁이 적어요?"];
+}
+function chatDraw(pending) {
+  const cm = $("#cm");
+  let h = CHAT.length ? "" : `<div class="mg a">안녕하세요. 화면에 띄운 건물·호실·실거래·주변 점포 자료를 보고 답해 드려요. 용어나 절차도 물어보세요.</div>`;
+  CHAT.forEach((m, i) => h += m.role === "user" ? `<div class="mg u">${esc(m.content)}</div>` : `<div class="mg a">${md(m.content)}<button type="button" class="cp" data-c="${i}">복사</button></div>`);
+  if (pending) h += `<div class="mg a muted">답변을 쓰는 중…</div>`;
+  if (!pending) h += `<div class="chips">${chatSuggest().map((q) => `<button type="button" data-q="${esc(q)}">${esc(q)}</button>`).join("")}</div>`;
+  cm.innerHTML = h; cm.scrollTop = cm.scrollHeight;
+}
+async function chatSend(q) {
+  q = q.trim(); if (!q) return;
+  CHAT.push({ role: "user", content: q }); chatDraw(true);
+  $("#ci").value = ""; $("#cs").disabled = true;
+  try {
+    const r = await fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ messages: CHAT.slice(-10), context: pageContext() }) });
+    const x = await r.json();
+    if (!r.ok) throw new Error(x.오류 || "AI 상담 오류");
+    CHAT.push({ role: "assistant", content: x.답변 + (x.남은횟수 <= 3 ? `\n\n(오늘 남은 질문 ${x.남은횟수}번)` : "") });
+  } catch (e) {
+    CHAT.pop(); CHAT.push({ role: "user", content: q }); CHAT.push({ role: "assistant", content: "⚠️ " + e.message });
+  } finally { $("#cs").disabled = false; chatDraw(false); }
+}
+$("#chatBtn").onclick = () => { $("#chat").classList.add("open"); $("#chatBtn").style.display = "none"; chatDraw(false); $("#ci").focus(); };
+$("#cx").onclick = () => { $("#chat").classList.remove("open"); $("#chatBtn").style.display = ""; };
+$("#cf").onsubmit = (e) => { e.preventDefault(); chatSend($("#ci").value); };
+$("#ci").onkeydown = (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); chatSend($("#ci").value); } };
+$("#cm").onclick = (e) => {
+  const c = e.target.closest("[data-c]"), s = e.target.closest("[data-q]");
+  if (c) { navigator.clipboard?.writeText(CHAT[+c.dataset.c].content).then(() => { c.textContent = "복사됨"; setTimeout(() => c.textContent = "복사", 1500); }).catch(() => {}); }
+  if (s) chatSend(s.dataset.q);
+};
 
 const q = new URLSearchParams(location.search).get("q");
 if (q) { $("#addr").value = q; run(q); }
