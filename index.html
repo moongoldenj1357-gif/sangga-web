@@ -139,7 +139,9 @@ function render(d) {
     h += `<div id="judge"></div>`;
   }
   h += tradesCard(d);
+  if (d.법정동코드) h += `<div id="stores"></div>`;
   $("#out").innerHTML = h;
+  if (d.법정동코드) loadStores(300);
   bindUnits();
   if (d.결과 !== "대장없음") {
     const t = d.건물[0] || {};
@@ -247,6 +249,57 @@ function tradesCard(d) {
   <div class="note">지분 거래와 해제(취소)된 거래는 뺐습니다. 지번은 신고 자료에서 일부 가려져 있을 수 있어요. 가격은 신고 금액의 통계 참고값이며 감정평가가 아닙니다.</div></div>`;
 }
 const thead = () => `<tr><th>계약일</th><th>지번</th><th>유형</th><th>건물용도</th><th>층</th><th class="num">면적</th><th class="num">금액</th><th class="num">㎡당</th></tr>`;
+
+// ── 주변 점포 (소상공인시장진흥공단 상가정보)
+const CATS = [
+  { n: "카페", f: (s) => /카페|커피/.test(s.소분류 + s.중분류) },
+  { n: "음식점(카페 제외)", f: (s) => /음식/.test(s.대분류) && !/카페|커피/.test(s.소분류 + s.중분류) },
+  { n: "편의점", f: (s) => /편의점/.test(s.소분류) },
+  { n: "소매(편의점 제외)", f: (s) => /소매/.test(s.대분류) && !/편의점/.test(s.소분류) },
+  { n: "미용·네일·피부", f: (s) => /미용|네일|피부/.test(s.중분류 + s.소분류) },
+  { n: "학원·교습", f: (s) => /교육/.test(s.대분류) },
+  { n: "헬스·필라테스·요가", f: (s) => /헬스|피트니스|필라테스|요가|체육|운동/.test(s.중분류 + s.소분류) },
+  { n: "병·의원·약국", f: (s) => /보건|의료/.test(s.대분류) },
+  { n: "동물병원·펫", f: (s) => /동물|반려|애완/.test(s.중분류 + s.소분류) },
+  { n: "부동산중개", f: (s) => /부동산/.test(s.대분류 + s.중분류) },
+];
+const distM = (a, b) => { const R = 6371000, r = Math.PI / 180, dy = (b.lat - a.lat) * r, dx = (b.lon - a.lon) * r * Math.cos(a.lat * r); return Math.round(Math.sqrt(dx * dx + dy * dy) * R); };
+
+async function loadStores(radius) {
+  const box = $("#stores"); if (!box || !DATA) return;
+  box.innerHTML = `<div class="card muted">반경 ${radius}m 주변 점포를 세는 중입니다…</div>`;
+  const d = DATA;
+  const [bun, ji = "0"] = String(d.지번).split("-");
+  const pnu = d.법정동코드 + (/(^|\s)산\s*\d/.test(d.주소) ? "2" : "1") + bun.padStart(4, "0") + ji.padStart(4, "0");
+  try {
+    const r = await fetch(`/api/stores?pnu=${pnu}&radius=${radius}`);
+    const x = await r.json();
+    if (!r.ok) throw new Error(x.오류 || "주변 점포 조회 실패");
+    if (DATA !== d) return;
+    box.innerHTML = storesCard(x, radius);
+    box.querySelectorAll("[data-r]").forEach((b) => b.onclick = () => loadStores(+b.dataset.r));
+  } catch (e) {
+    box.innerHTML = `<div class="card"><h2>주변 점포</h2><div class="err">${esc(e.message)}</div></div>`;
+  }
+}
+
+function storesCard(x, radius) {
+  const btns = [100, 300, 500].map((r) => `<button type="button" data-r="${r}" style="padding:6px 12px;font-size:13px;${r === radius ? "" : "background:var(--bg);color:var(--ink);border:1px solid var(--line)"}">${r}m</button>`).join("");
+  if (x.결과 === "위치없음") return `<div class="card"><h2>주변 점포</h2><p class="muted">${esc(x.안내)}</p></div>`;
+  const list = x.반경_점포 || [];
+  const c = x.중심;
+  const cats = CATS.map((k) => { const m = list.filter(k.f); const near = m.map((s) => distM(c, s)).sort((a, b) => a - b)[0]; return { ...k, cnt: m.length, near }; });
+  const top = Object.entries(list.reduce((a, s) => (a[s.소분류 || "기타"] = (a[s.소분류 || "기타"] || 0) + 1, a), {})).sort((a, b) => b[1] - a[1]).slice(0, 12);
+  const here = (x.이_지번_점포 || []).slice().sort((a, b) => String(a.층).localeCompare(String(b.층), "ko", { numeric: true }) || String(a.호).localeCompare(String(b.호), "ko", { numeric: true }));
+  return `<div class="card"><h2>주변 점포 <span class="muted">반경 ${radius}m · ${x.반경_점포수.toLocaleString()}곳 · 위치 기준: ${esc(x.위치기준)}</span></h2>
+  <div class="tools">${btns}</div>
+  <div class="grid">${cats.map((k) => `<div class="kv"><b>${k.n}</b><span class="big">${k.cnt}</span><b>${k.cnt ? `가장 가까운 곳 약 ${k.near}m` : "없음"}</b></div>`).join("")}</div>
+  <h2 style="margin-top:18px;font-size:15px">많은 업종 순</h2>
+  <div class="scroll" style="max-height:300px"><table><thead><tr><th>업종(소분류)</th><th class="num">점포 수</th></tr></thead><tbody>${top.map(([k, v]) => `<tr><td>${esc(k)}</td><td class="num">${v}</td></tr>`).join("")}</tbody></table></div>
+  ${here.length ? `<h2 style="margin-top:18px;font-size:15px">이 지번에 등록된 점포 ${here.length}곳</h2>
+  <div class="scroll" style="max-height:300px"><table><thead><tr><th>층</th><th>호</th><th>상호</th><th>업종</th></tr></thead><tbody>${here.map((s) => `<tr><td>${esc(s.층 ?? "")}</td><td>${esc(s.호 ?? "")}</td><td>${esc(s.이름)}</td><td>${esc(s.소분류 || "")}</td></tr>`).join("")}</tbody></table></div>` : ""}
+  <div class="note">자료: 소상공인시장진흥공단 상가(상권)정보(분기마다 갱신). 문 닫은 점포가 남아 있거나 새 점포가 빠져 있을 수 있어요. ${x.주의 ? esc(x.주의) : ""}</div></div>`;
+}
 
 const q = new URLSearchParams(location.search).get("q");
 if (q) { $("#addr").value = q; run(q); }
