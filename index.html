@@ -146,6 +146,10 @@ async function run(addr) {
 
 function render(d) {
   SEL = null; ST_SUM = null; TR_SUM = null;
+  if (typeof CHAT !== "undefined" && CHAT.length && CHAT[CHAT.length - 1].role !== "divider") {
+    CHAT.push({ role: "divider", content: `새 주소: ${d.주소} — 여기부터는 이 주소 기준으로 답해요` });
+    if ($("#chat").classList.contains("open")) chatDraw(false);
+  }
   let h = "";
   if (d.결과 === "대장없음") {
     h += `<div class="card"><h2>건축물대장이 없습니다</h2><p class="muted">${esc(d.시군구)} ${esc(d.동)} ${esc(d.지번)} — 지번이 맞는지, 건물이 없는 땅인지 확인하세요. 아래 동네 실거래는 볼 수 있어요.</p></div>`;
@@ -231,7 +235,7 @@ function bindUnits() {
     const tr = e.target.closest("tr[data-i]"); if (!tr) return;
     ub.querySelectorAll("tr").forEach((r) => r.classList.remove("sel")); tr.classList.add("sel");
     const u = own[+tr.dataset.i];
-    showJudge(u.purpose, u.purpose_etc, `${u.dong_name ? u.dong_name + " " : ""}${u.ho_name || ""} (${u.floor_name || ""}, ${u.area ?? "?"}㎡)`, u);
+    showJudge(u.purpose, u.purpose_etc, `${u.dong_name ? u.dong_name + "동 " : ""}${hoLabel(u.ho_name)} (${flLabel(u.floor_name)}, 전용 ${u.area ?? "?"}㎡)`, u);
   };
 }
 
@@ -382,9 +386,17 @@ const md = (t) => {
   }
   return (inList ? h + "</ul>" : h).replace(/(<br>)+$/, "");
 };
+const flLabel = (f) => { f = String(f ?? "").trim(); return /^\d+$/.test(f) ? f + "층" : /^-\d+$/.test(f) ? "지하" + f.slice(1) + "층" : f; };
+const hoLabel = (h) => { h = String(h ?? "").trim(); return /^\d+$/.test(h) ? h + "호" : h; };
 function pageContext() {
   if (!DATA) return "";
   const d = DATA, L = [];
+  if (SEL) {
+    L.push(`★ 사용자가 지금 고른 공간: ${SEL.title} / 건축물대장 용도: ${SEL.purpose || "-"}${SEL.etc && SEL.etc !== SEL.purpose ? " (" + SEL.etc + ")" : ""}`);
+    L.push("★ 이 공간에 대해 화면이 보여 준 업종 1차 판단(이 결과를 바꾸지 말고 그대로 전달): " + SEL.verdict.join(" | "));
+    if (SEL.price) L.push("★ 이 공간의 시세 참고 범위(화면 표시 그대로): " + SEL.price);
+    L.push("");
+  }
   L.push(`조회 주소: ${d.주소} (법정동코드 ${d.법정동코드 || "-"}, ${d.시군구} ${d.동} ${d.지번})`);
   for (const t of d.건물 || []) L.push(`건물: ${t.building_name || "(이름 없음)"} / 도로명 ${t.road_address || "-"} / 주용도 ${t.main_purpose} / 기타용도 ${t.etc_purpose || "-"} / 연면적 ${t.total_area}㎡ / 지상 ${t.ground_floors}층 지하 ${t.under_floors}층 / 사용승인 ${t.approval_date} / 구조 ${t.structure}`);
   if (d.결과 === "대장없음") L.push("이 지번에는 건축물대장이 없습니다.");
@@ -393,14 +405,9 @@ function pageContext() {
   if (own.length) {
     const cnt = {}; own.forEach((u) => cnt[u.purpose || "미상"] = (cnt[u.purpose || "미상"] || 0) + 1);
     L.push(`전유부 호실 ${own.length}개, 용도별: ${Object.entries(cnt).map(([k, v]) => `${k} ${v}`).join(", ")}`);
-    L.push("호실 목록(층/호/용도/전용면적): " + own.slice(0, 80).map((u) => `${u.dong_name ? u.dong_name + "동 " : ""}${u.floor_name}/${u.ho_name}/${u.purpose}/${u.area}㎡`).join("; "));
+    L.push("호실 목록(층 호: 용도, 전용면적): " + own.slice(0, 120).map((u) => `${u.dong_name ? u.dong_name + "동 " : ""}${flLabel(u.floor_name)} ${hoLabel(u.ho_name)}: ${u.purpose}${u.purpose_etc && u.purpose_etc !== u.purpose ? "(" + u.purpose_etc + ")" : ""}, ${u.area}㎡`).join("; "));
   }
   if (fl.length) L.push("층별개요(층/용도/면적): " + fl.map((u) => `${u.floor_name}/${u.purpose}${u.purpose_etc && u.purpose_etc !== u.purpose ? "(" + u.purpose_etc + ")" : ""}/${u.area}㎡`).join("; "));
-  if (SEL) {
-    L.push(`사용자가 고른 공간: ${SEL.title}, 대장 용도 ${SEL.purpose || "-"}${SEL.etc ? " / " + SEL.etc : ""}`);
-    L.push("화면의 업종 1차 판단: " + SEL.verdict.join(" | "));
-    if (SEL.price) L.push("화면의 시세 참고 범위: " + SEL.price);
-  }
   if (TR_SUM) {
     const S = TR_SUM.S, f = (s) => s.med ? `${won(s.med)}원/㎡(${s.n}건, 가운데 절반 ${won(s.q1)}~${won(s.q3)})` : `없음(${s.n}건)`;
     L.push(`상가 매매 실거래(지분·해제 제외): ${TR_SUM.dn} 최근 2년 ${TR_SUM.alln}건, 최근 1년 ${TR_SUM.y1n}건`);
@@ -417,13 +424,13 @@ function pageContext() {
 }
 function chatSuggest() {
   if (!DATA) return ["근린생활시설 1종과 2종은 뭐가 달라요?", "용도변경과 기재변경 차이는?", "상가 낙찰받으면 세금이 얼마나 나와요?"];
-  const sp = SEL ? SEL.title.split(" (")[0] : "이 건물";
+  const sp = SEL ? SEL.title.split(" (")[0] : "이 건물";  // 예: 102호
   return [`${sp}에서 카페를 하려면 뭘 확인해야 해요?`, "이 동네 실거래 숫자를 쉽게 풀어 주세요", "주변 점포를 보면 어떤 업종이 경쟁이 적어요?"];
 }
 function chatDraw(pending) {
   const cm = $("#cm");
   let h = CHAT.length ? "" : `<div class="mg a">안녕하세요. 화면에 띄운 건물·호실·실거래·주변 점포 자료를 보고 답해 드려요. 용어나 절차도 물어보세요.</div>`;
-  CHAT.forEach((m, i) => h += m.role === "user" ? `<div class="mg u">${esc(m.content)}</div>` : `<div class="mg a">${md(m.content)}<button type="button" class="cp" data-c="${i}">복사</button></div>`);
+  CHAT.forEach((m, i) => h += m.role === "divider" ? `<div class="muted" style="text-align:center;font-size:12px;margin:4px 0">── ${esc(m.content)} ──</div>` : m.role === "user" ? `<div class="mg u">${esc(m.content)}</div>` : `<div class="mg a">${md(m.content)}<button type="button" class="cp" data-c="${i}">복사</button></div>`);
   if (pending) h += `<div class="mg a muted">답변을 쓰는 중…</div>`;
   if (!pending) h += `<div class="chips">${chatSuggest().map((q) => `<button type="button" data-q="${esc(q)}">${esc(q)}</button>`).join("")}</div>`;
   cm.innerHTML = h; cm.scrollTop = cm.scrollHeight;
@@ -433,7 +440,7 @@ async function chatSend(q) {
   CHAT.push({ role: "user", content: q }); chatDraw(true);
   $("#ci").value = ""; $("#cs").disabled = true;
   try {
-    const r = await fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ messages: CHAT.slice(-10), context: pageContext() }) });
+    const r = await fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ messages: CHAT.slice(CHAT.map((m) => m.role).lastIndexOf("divider") + 1).filter((m) => !String(m.content).startsWith("⚠️")).slice(-10), context: pageContext() }) });
     const x = await r.json();
     if (!r.ok) throw new Error(x.오류 || "AI 상담 오류");
     CHAT.push({ role: "assistant", content: x.답변 + (x.남은횟수 <= 3 ? `\n\n(오늘 남은 질문 ${x.남은횟수}번)` : "") });
