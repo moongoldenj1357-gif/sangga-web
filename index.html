@@ -173,36 +173,74 @@ function bindUnits() {
     const tr = e.target.closest("tr[data-i]"); if (!tr) return;
     ub.querySelectorAll("tr").forEach((r) => r.classList.remove("sel")); tr.classList.add("sel");
     const u = own[+tr.dataset.i];
-    showJudge(u.purpose, u.purpose_etc, `${u.dong_name ? u.dong_name + " " : ""}${u.ho_name || ""} (${u.floor_name || ""}, ${u.area ?? "?"}㎡)`);
+    showJudge(u.purpose, u.purpose_etc, `${u.dong_name ? u.dong_name + " " : ""}${u.ho_name || ""} (${u.floor_name || ""}, ${u.area ?? "?"}㎡)`, u);
   };
 }
 
-function showJudge(purpose, etc, title) {
+function priceBox(u) {
+  if (!u || !u.area || !REF) return "";
+  const r = isF1(u.floor_name) ? REF.f1 : REF.fo;
+  if (!r.med) return "";
+  const a = Number(u.area);
+  const lo = (r.q1 ?? r.med) * a, mid = r.med * a, hi = (r.q3 ?? r.med) * a;
+  const weak = r.n < MIN_N ? ` <span class="pill mid">표본 ${r.n}건</span>` : "";
+  return `<div class="kv" style="margin-bottom:12px"><b>이 호실 매매 시세 참고 범위 (전용 ${a.toLocaleString()}㎡ × ㎡당 값)${weak}</b>
+    <span class="big">${won(lo)} ~ ${won(hi)}원</span> <span class="muted">중간 ${won(mid)}원</span>
+    <b style="margin-top:4px">근거: ${r.src}의 ㎡당 가운데 절반(${won(r.q1 ?? r.med)}~${won(r.q3 ?? r.med)}원). ${isUnder(u.floor_name) ? "지하층은 보통 이보다 낮습니다. " : ""}통계 참고값이며 감정평가가 아닙니다.</b></div>`;
+}
+
+function showJudge(purpose, etc, title, unit) {
   const rows = judge(purpose, etc);
   const lab = { ok: "가능", mid: "검토", no: "변경 필요" };
   $("#judge").innerHTML = `<div class="card"><h2>이 공간에서 할 수 있는 업종 <span class="muted">${esc(title)} · 대장 용도: ${esc(purpose || "-")}</span></h2>
+  ${priceBox(unit)}
   <div class="biz">${rows.map((b) => `<div><strong>${b.n}<span class="pill ${b.lv}">${lab[b.lv]}</span></strong><p>${b.txt}${b.tip ? " · " + b.tip : ""}</p></div>`).join("")}</div>
   <div class="note">건축물대장의 용도만 보고 한 1차 판단입니다. 같은 근린생활시설군 안의 변경은 보통 건축물대장 기재내용 변경 신청으로 되지만, 면적 기준·주차장·정화조·학교 근처 제한(교육환경보호구역)·소방 기준에 따라 달라질 수 있습니다. 계약 전 구청 건축과와 위생과(음식점) 등에 꼭 확인하세요.</div></div>`;
   $("#judge").scrollIntoView({ behavior: "smooth", block: "nearest" });
 }
 
+const MIN_N = 5;
+const quant = (a, q) => { const b = a.filter((x) => x != null && isFinite(x)).sort((x, y) => x - y); if (!b.length) return null; const i = (b.length - 1) * q, lo = Math.floor(i), hi = Math.ceil(i); return b[lo] + (b[hi] - b[lo]) * (i - lo); };
+const stat = (rows) => { const v = rows.map((t) => Number(t.price_per_m2)).filter((x) => x > 0); return { n: v.length, med: quant(v, .5), q1: quant(v, .25), q3: quant(v, .75) }; };
+const isF1 = (f) => /^(지상)?\s*1\s*(층)?$/.test(String(f ?? "").trim());
+const isUnder = (f) => /지하|^B|^-/.test(String(f ?? "").trim());
+let REF = null;
+
 function tradesCard(d) {
-  const all = (d.실거래 || []).filter((t) => !String(t.share_type || "").includes("지분"));
+  const clean = (r) => !String(r.share_type || "").includes("지분");
+  const all = (d.실거래 || []).filter(clean);
   const yr = new Date(Date.now() - 365 * 86400000).toISOString().slice(0, 10);
   const y1 = all.filter((t) => t.deal_date >= yr);
-  const med = median(y1.map((t) => t.price_per_m2));
-  const f1 = y1.filter((t) => t.floor === "1"), fo = y1.filter((t) => t.floor && t.floor !== "1");
+  const gu = (d.구전체 || []).filter(clean);
+  const S = {
+    dAll: stat(y1), d1: stat(y1.filter((t) => isF1(t.floor))), dO: stat(y1.filter((t) => t.floor && !isF1(t.floor))),
+    g1: stat(gu.filter((t) => isF1(t.floor))), gO: stat(gu.filter((t) => t.floor && !isF1(t.floor))), gAll: stat(gu),
+  };
+  const dn = esc(d.동 || "이 동네"), gn = esc(d.시군구 || "구");
+  REF = {
+    f1: S.d1.n >= MIN_N ? { ...S.d1, src: `${dn} 1층 거래 ${S.d1.n}건` } : { ...S.g1, src: `${dn} 1층 거래가 ${S.d1.n}건뿐이라 ${gn} 전체 1층 거래 ${S.g1.n}건` },
+    fo: S.dO.n >= MIN_N ? { ...S.dO, src: `${dn} 2층 이상·지하 거래 ${S.dO.n}건` } : { ...S.gO, src: `${dn} 그 외 층 거래가 ${S.dO.n}건뿐이라 ${gn} 전체 그 외 층 거래 ${S.gO.n}건` },
+  };
+  const few = (s) => s.n < MIN_N ? ` <span class="pill mid">표본 적음</span>` : "";
+  const val = (s) => s.med ? won(s.med) + "원" : "-";
   const bun = String(d.지번 || "").split("-")[0];
-  const same = all.filter((t) => t.jibun && (t.jibun === d.지번 || t.jibun === bun || t.jibun === d.지번.replace(/-0$/, "")));
+  const same = all.filter((t) => t.jibun && (t.jibun === d.지번 || t.jibun === bun || t.jibun === String(d.지번).replace(/-0$/, "")));
   const pyeong = (v) => v == null ? "-" : won(v * 3.3058) + "원/평";
   const row = (t) => `<tr><td>${t.deal_date}</td><td>${esc(t.jibun || "")}</td><td>${esc(t.building_type || "")}</td><td>${esc(t.building_use || "")}</td><td>${esc(t.floor || "")}</td><td class="num">${t.building_area ?? ""}㎡</td><td class="num">${won(t.deal_amount_10k)}</td><td class="num">${t.price_per_m2 ? won(t.price_per_m2) : "-"}</td></tr>`;
-  return `<div class="card"><h2>${esc(d.시군구 || "")} ${esc(d.동 || "")} 상가 매매 실거래 <span class="muted">최근 2년 ${all.length}건</span></h2>
+  return `<div class="card"><h2>${gn} ${dn} 상가 매매 실거래 <span class="muted">최근 2년 ${all.length}건</span></h2>
   <div class="grid">
     <div class="kv"><b>최근 1년 거래</b><span class="big">${y1.length}건</span></div>
-    <div class="kv"><b>㎡당 중간값(1년)</b><span class="big">${med ? won(med) + "원" : "-"}</span><b>${pyeong(med)}</b></div>
-    <div class="kv"><b>1층 ㎡당 중간값</b><span>${f1.length ? won(median(f1.map((t) => t.price_per_m2))) + "원" : "-"}</span><b>${f1.length}건</b></div>
-    <div class="kv"><b>그 외 층 ㎡당 중간값</b><span>${fo.length ? won(median(fo.map((t) => t.price_per_m2))) + "원" : "-"}</span><b>${fo.length}건</b></div>
+    <div class="kv"><b>㎡당 중간값(1년)${few(S.dAll)}</b><span class="big">${val(S.dAll)}</span><b>${pyeong(S.dAll.med)}</b></div>
+    <div class="kv"><b>1층 ㎡당 중간값${few(S.d1)}</b><span>${val(S.d1)}</span><b>${S.d1.n}건</b></div>
+    <div class="kv"><b>그 외 층 ㎡당 중간값${few(S.dO)}</b><span>${val(S.dO)}</span><b>${S.dO.n}건</b></div>
   </div>
+  <h2 style="margin-top:18px;font-size:15px">비교: ${gn} 전체 (최근 1년)</h2>
+  <div class="grid">
+    <div class="kv"><b>전체 ㎡당 중간값</b><span>${val(S.gAll)}</span><b>${S.gAll.n}건</b></div>
+    <div class="kv"><b>1층 ㎡당 중간값</b><span>${val(S.g1)}</span><b>${S.g1.n}건 · 가운데 절반 ${S.g1.q1 ? won(S.g1.q1) + "~" + won(S.g1.q3) : "-"}</b></div>
+    <div class="kv"><b>그 외 층 ㎡당 중간값</b><span>${val(S.gO)}</span><b>${S.gO.n}건 · 가운데 절반 ${S.gO.q1 ? won(S.gO.q1) + "~" + won(S.gO.q3) : "-"}</b></div>
+  </div>
+  ${(S.d1.n < MIN_N || S.dO.n < MIN_N) ? `<div class="note" style="background:var(--warn-soft);color:var(--warn)">거래가 ${MIN_N}건 미만인 값은 한두 건의 특이한 거래에 크게 흔들립니다. 이럴 땐 아래 ${gn} 전체 값을 함께 보세요.</div>` : ""}
   ${same.length ? `<h2 style="margin-top:18px">같은 지번 거래 ${same.length}건</h2><div class="scroll"><table><thead>${thead()}</thead><tbody>${same.map(row).join("")}</tbody></table></div>` : ""}
   <h2 style="margin-top:18px">최근 거래</h2>
   ${all.length ? `<div class="scroll"><table><thead>${thead()}</thead><tbody>${all.slice(0, 30).map(row).join("")}</tbody></table></div>` : `<p class="muted">이 동네에는 최근 2년 상가 매매 신고가 없어요.</p>`}

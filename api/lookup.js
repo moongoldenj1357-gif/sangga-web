@@ -1,6 +1,6 @@
 const BASE = "https://apis.data.go.kr/1613000/BldRgstHubService";
 const KEY = process.env.DATA_GO_KR_KEY ?? "";
-const SB_URL = (process.env.SUPABASE_URL ?? "").replace(/\/$/, "");
+const SB_URL = (process.env.SUPABASE_URL ?? "").trim().replace(/\/+$/, "").replace(/\/rest\/v1$/, "");
 const SB_KEY = process.env.SUPABASE_SECRET_KEY ?? "";
 const UNIT_CAP = 5e3;
 const SIGUNGU = {
@@ -383,6 +383,16 @@ async function trades(sig, dongName) {
   if (!rows.length && last !== dongName) rows = await sb("GET", `${base}&dong=eq.${encodeURIComponent(last)}`);
   return rows;
 }
+async function guTrades(sig) {
+  const since = new Date(Date.now() - 365 * 864e5).toISOString().slice(0, 10);
+  const out = [];
+  for (let off = 0; off < 1e4; off += 1e3) {
+    const rows = await sb("GET", `commercial_trades?lawd_cd=eq.${sig}&cancelled=eq.false&deal_date=gte.${since}&price_per_m2=not.is.null&select=floor,price_per_m2,building_type,share_type&order=id&limit=1000&offset=${off}`);
+    out.push(...rows);
+    if (rows.length < 1e3) break;
+  }
+  return out;
+}
 async function handler(req, res) {
   res.setHeader("Cache-Control", "no-store");
   const address = String(req.query && req.query.address || "").trim();
@@ -403,10 +413,10 @@ async function handler(req, res) {
     }
     const sig = lot.tries[0][0];
     const dongName = hit?.dongName || lot.tries[0][2];
-    const tr = await trades(sig, dongName);
-    if (!hit) return res.status(200).json({ 결과: "대장없음", 주소: address, 지번: `${lot.plat === "1" ? "산 " : ""}${lot.bun}-${lot.ji}`, 시군구: SIGUNGU[sig], 동: dongName, 실거래: tr });
+    const [tr, gu] = await Promise.all([trades(sig, dongName), guTrades(sig)]);
+    if (!hit) return res.status(200).json({ 결과: "대장없음", 주소: address, 지번: `${lot.plat === "1" ? "산 " : ""}${lot.bun}-${lot.ji}`, 시군구: SIGUNGU[sig], 동: dongName, 실거래: tr, 구전체: gu });
     const { titles, units } = await readLot(hit.bjd, lot.bun, lot.ji);
-    return res.status(200).json({ 결과: "완료", 출처: source, 주소: address, 법정동코드: hit.bjd, 시군구: SIGUNGU[sig], 동: dongName, 지번: `${lot.bun}-${lot.ji}`, 건물: titles, 호실: units, 실거래: tr });
+    return res.status(200).json({ 결과: "완료", 출처: source, 주소: address, 법정동코드: hit.bjd, 시군구: SIGUNGU[sig], 동: dongName, 지번: `${lot.bun}-${lot.ji}`, 건물: titles, 호실: units, 실거래: tr, 구전체: gu });
   } catch (e) {
     const status = e instanceof UserError ? 400 : 500;
     return res.status(status).json({ 오류: e.message });
