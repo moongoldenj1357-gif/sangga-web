@@ -159,7 +159,12 @@ class UserError extends Error {
 const unesc = (s) => s.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, "&").trim();
 function parseXml(text) {
   const auth = text.match(/<returnAuthMsg>([^<]*)<\/returnAuthMsg>/);
-  if (auth && !/NORMAL/.test(auth[1])) throw new AuthError("공공데이터포털 오류: " + auth[1] + " (건축HUB 건축물대장 활용신청 승인 여부를 확인하세요)");
+  if (auth && !/NORMAL/.test(auth[1])) {
+    const reason = (text.match(/<returnReasonCode>([^<]*)</) || [])[1] || "";
+    if (/^(20|22|30|31|32)$/.test(reason.trim()) || /KEY|ACCESS_DENIED|EXPIRED|UNREGISTERED|EXCEEDS/.test(auth[1]))
+      throw new AuthError("공공데이터포털 오류: " + auth[1] + " (건축HUB 건축물대장 활용신청 승인 여부를 확인하세요)");
+    throw new Error("공공데이터포털 연결 오류: " + auth[1]);
+  }
   const code = (text.match(/<resultCode>([^<]*)<\/resultCode>/) || [])[1];
   if (code && !["00", "000", "0"].includes(code.trim())) {
     const msg = (text.match(/<resultMsg>([^<]*)<\/resultMsg>/) || [])[1] || "";
@@ -393,6 +398,25 @@ async function guTrades(sig) {
   }
   return out;
 }
+async function viaSupabase(address) {
+  const r = await fetch(`${SB_URL}/functions/v1/collect-buildings`, {
+    method: "POST",
+    headers: { ...sbHeaders(), Authorization: `Bearer ${SB_KEY}` },
+    body: JSON.stringify({ address }),
+    signal: AbortSignal.timeout(55e3)
+  });
+  const text = await r.text();
+  if (r.status === 401) throw new Error("Supabase 함수가 사이트 요청을 거절했습니다(401). collect-buildings 함수 Settings에서 'Verify JWT'(JWT 검증)를 끄세요.");
+  let d = {};
+  try {
+    d = JSON.parse(text);
+  } catch {
+    throw new Error(`Supabase 함수 오류(${r.status}): ${text.slice(0, 150)}`);
+  }
+  if (d.결과 === "완료") return d;
+  if (d.결과 === "건축물대장이 없습니다") return null;
+  throw new Error(d.이유 || d.오류 || `Supabase 함수 오류(${r.status})`);
+}
 async function handler(req, res) {
   res.setHeader("Cache-Control", "no-store");
   const address = String(req.query && req.query.address || "").trim();
@@ -403,8 +427,15 @@ async function handler(req, res) {
     let hit = await cached(lot);
     let source = "저장된 자료";
     if (!hit) {
-      const r = await processLot(lot);
-      source = "공공데이터포털에서 새로 받음";
+      let r;
+      try {
+        r = await processLot(lot);
+        source = "공공데이터포털에서 새로 받음";
+      } catch (e) {
+        if (e instanceof UserError) throw e;
+        r = await viaSupabase(address);
+        source = "Supabase 수집 함수로 받음";
+      }
       if (r) {
         const t = lot.tries.find((x) => x[0] + x[1] === r.법정동코드) ?? lot.tries[0];
         hit = { bjd: r.법정동코드, sig: t[0], dongName: t[2], titles: [] };
