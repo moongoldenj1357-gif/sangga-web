@@ -145,7 +145,7 @@ async function run(addr) {
 }
 
 function render(d) {
-  SEL = null; ST_SUM = null; TR_SUM = null;
+  SEL = null; ST_SUM = null; TR_SUM = null; RENT_POS = null; RENT_SUM = null;
   if (typeof CHAT !== "undefined" && CHAT.length && CHAT[CHAT.length - 1].role !== "divider") {
     CHAT.push({ role: "divider", content: `새 주소: ${d.주소} — 여기부터는 이 주소 기준으로 답해요` });
     if ($("#chat").classList.contains("open")) chatDraw(false);
@@ -170,9 +170,10 @@ function render(d) {
     h += `<div id="judge"></div>`;
   }
   h += tradesCard(d);
+  h += `<div id="rent"></div>`;
   if (d.법정동코드) h += `<div id="stores"></div>`;
   $("#out").innerHTML = h;
-  if (d.법정동코드) loadStores(300);
+  if (d.법정동코드) loadStores(300); else renderRent(null);
   bindUnits();
   bindFloors();
   if (d.결과 !== "대장없음") {
@@ -207,6 +208,7 @@ function bindFloors() {
     fb.querySelectorAll("tr").forEach((r) => r.classList.remove("sel")); tr.classList.add("sel");
     const u = fl[+tr.dataset.i];
     showJudge(u.purpose, u.purpose_etc, `${u.dong_name ? u.dong_name + " " : ""}${u.floor_name || ""} (${u.area ?? "?"}㎡)`);
+    renderRent(RENT_POS, u);
   };
 }
 
@@ -262,6 +264,7 @@ function priceBox(u) {
 function showJudge(purpose, etc, title, unit) {
   const rows = judge(purpose, etc);
   const lab = { ok: "가능", mid: "검토", no: "변경 필요" };
+  setTimeout(() => renderRent(RENT_POS, unit), 0);
   SEL = { title, purpose, etc, verdict: rows.map((b) => `${b.n}: ${lab[b.lv]} (${b.txt})`), price: unit ? priceText(unit) : "" };
   $("#judge").innerHTML = `<div class="card"><h2>이 공간에서 할 수 있는 업종 <span class="muted">${esc(title)} · 대장 용도: ${esc(purpose || "-")}</span></h2>
   ${priceBox(unit)}
@@ -275,7 +278,7 @@ const quant = (a, q) => { const b = a.filter((x) => x != null && isFinite(x)).so
 const stat = (rows) => { const v = rows.map((t) => Number(t.price_per_m2)).filter((x) => x > 0); return { n: v.length, med: quant(v, .5), q1: quant(v, .25), q3: quant(v, .75) }; };
 const isF1 = (f) => /^(지상)?\s*1\s*(층)?$/.test(String(f ?? "").trim());
 const isUnder = (f) => /^지|지하|^B|^-/.test(String(f ?? "").trim());
-let REF = null, TR_SUM = null, ST_SUM = null, SEL = null;
+let REF = null, TR_SUM = null, ST_SUM = null, SEL = null, RENT_POS = null, RENT_SUM = null, RENT_UNIT = null;
 
 function tradesCard(d) {
   const clean = (r) => !String(r.share_type || "").includes("지분");
@@ -348,9 +351,11 @@ async function loadStores(radius) {
     if (!r.ok) throw new Error(x.오류 || "주변 점포 조회 실패");
     if (DATA !== d) return;
     box.innerHTML = storesCard(x, radius);
+    if (!RENT_POS || RENT_POS.src !== "stores") renderRent(x.중심 ? { ...x.중심, src: "stores" } : null);
     box.querySelectorAll("[data-r]").forEach((b) => b.onclick = () => loadStores(+b.dataset.r));
   } catch (e) {
     box.innerHTML = `<div class="card"><h2>주변 점포</h2><div class="err">${esc(e.message)}</div></div>`;
+    renderRent(null);
   }
 }
 
@@ -372,6 +377,92 @@ function storesCard(x, radius) {
   ${here.length ? `<h2 style="margin-top:18px;font-size:15px">이 지번에 등록된 점포 ${here.length}곳</h2>
   <div class="scroll" style="max-height:300px"><table><thead><tr><th>층</th><th>호</th><th>상호</th><th>업종</th></tr></thead><tbody>${here.map((s) => `<tr><td>${esc(s.층 ?? "")}</td><td>${esc(s.호 ?? "")}</td><td>${esc(s.이름)}</td><td>${esc(s.소분류 || "")}</td></tr>`).join("")}</tbody></table></div>` : ""}
   <div class="note">자료: 소상공인시장진흥공단 상가(상권)정보(분기마다 갱신). 문 닫은 점포가 남아 있거나 새 점포가 빠져 있을 수 있어요. ${x.주의 ? esc(x.주의) : ""}</div></div>`;
+}
+
+// ── 임대료·공실률 (한국부동산원 상업용부동산 임대동향조사)
+let RENT_DATA = null;
+const rentData = () => RENT_DATA || (RENT_DATA = fetch("/data/rent.json").then((r) => r.json()));
+function inRing(pt, ring) {
+  let ins = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const [xi, yi] = ring[i], [xj, yj] = ring[j];
+    if ((yi > pt[1]) !== (yj > pt[1]) && pt[0] < ((xj - xi) * (pt[1] - yi)) / (yj - yi) + xi) ins = !ins;
+  }
+  return ins;
+}
+const inPoly = (pt, polys) => polys.some((rings) => inRing(pt, rings[0]) && !rings.slice(1).some((h) => inRing(pt, h)));
+const polyDist = (pos, polys) => Math.min(...polys.flatMap((r) => r[0]).map(([lon, lat]) => distM(pos, { lon, lat })));
+const RTYPES = ["집합", "중대형", "소규모", "오피스"];
+const RLABEL = { 집합: "집합상가", 중대형: "중대형상가", 소규모: "소규모상가", 오피스: "오피스" };
+function pickType(d) {
+  const t = (d.건물 || [])[0] || {};
+  if ((d.호실 || []).some((u) => u.area_type === "전유")) return "집합";
+  if (/업무시설/.test(t.main_purpose || "") && (t.ground_floors ?? 0) >= 6) return "오피스";
+  if ((t.ground_floors ?? 0) >= 3 || (t.total_area ?? 0) > 330) return "중대형";
+  return "소규모";
+}
+async function renderRent(pos, unit) {
+  const box = $("#rent"); if (!box || !DATA) return;
+  if (pos) RENT_POS = pos;
+  if (unit !== undefined) RENT_UNIT = unit;
+  const d = DATA;
+  let R;
+  try { R = await rentData(); } catch { box.innerHTML = ""; return; }
+  if (DATA !== d) return;
+  const sido = String(d.법정동코드 || "").startsWith("11") || (!d.법정동코드 && /서울/.test(d.주소)) ? "서울" : "경기";
+  const sgg = String(d.법정동코드 || "").slice(0, 5);
+  const ds = R.districts.filter((x) => x.sido === sido);
+  let hit = null, near = null, how = "";
+  if (RENT_POS) {
+    const pt = [RENT_POS.lon, RENT_POS.lat];
+    const inside = ds.filter((x) => inPoly(pt, x.poly));
+    hit = inside.find((x) => x.stats) || null;
+    if (!hit) {
+      const cand = ds.filter((x) => x.stats).map((x) => ({ x, m: polyDist(RENT_POS, x.poly) })).sort((a, b) => a.m - b.m)[0];
+      if (cand && cand.m < 3000) near = cand;
+      how = inside.length ? `이 위치는 조사 상권 "${inside[0].name}" 안이지만 받아 둔 통계표에 아직 값이 없어요.` : "이 위치는 부동산원 조사 상권 밖이에요.";
+    }
+  } else {
+    const same = ds.filter((x) => x.stats && x.sgg === sgg);
+    if (same.length) near = { x: same[0], m: null };
+    how = "점포 자료로 위치를 잡지 못해 같은 시군구의 조사 상권을 보여 드려요.";
+  }
+  const main = pickType(d);
+  const base = hit || near?.x || null;
+  const last = (a) => a ? a[a.length - 1] : null;
+  const yoy = (a) => a && a.length >= 5 && a[a.length - 5] ? ((a[a.length - 1] / a[a.length - 5] - 1) * 100) : null;
+  const q = R.quarters[R.quarters.length - 1];
+  const row = (t) => {
+    const st = base?.stats?.[t], sd = R.sido[sido]?.[t];
+    if (!st && !sd) return "";
+    const y = yoy(st?.rent);
+    return `<tr${t === main ? ' style="font-weight:600"' : ""}><td>${RLABEL[t]}${t === main ? " ★" : ""}</td>
+      <td class="num">${st?.rent ? last(st.rent).toFixed(1) + "천원" : "-"}</td><td class="num">${y != null ? (y >= 0 ? "+" : "") + y.toFixed(1) + "%" : "-"}</td>
+      <td class="num">${st?.vac ? last(st.vac).toFixed(1) + "%" : "-"}</td>
+      <td class="num">${sd?.rent ? last(sd.rent).toFixed(1) + "천원 / " + (last(sd.vac) ?? 0).toFixed(1) + "%" : "-"}</td></tr>`;
+  };
+  // 임대 vs 직접 사용 (고른 호실·층)
+  const u = RENT_UNIT;
+  const rentM2 = last((base?.stats?.[main] || R.sido[sido]?.[main] || {}).rent);
+  let calc = "";
+  if (u && u.area && rentM2) {
+    const monthly = rentM2 * 1000 * Number(u.area);
+    const r = REF ? (isF1(u.floor_name) ? REF.f1 : REF.fo) : null;
+    const price = r?.med ? r.med * 10000 * Number(u.area) : null;
+    const yld = price ? (monthly * 12) / price * 100 : null;
+    calc = `<div class="kv" style="margin-top:12px"><b>고른 공간(${esc(SEL?.title || "")}) 기준 단순 계산</b>
+      <span>월 임대료 약 ${won(monthly / 10000)}원</span> <span class="muted">= ㎡당 ${rentM2.toFixed(1)}천원 × ${Number(u.area).toLocaleString()}㎡</span>
+      <b style="margin-top:6px">· 임대를 주면: 연 약 ${won(monthly * 12 / 10000)}원${yld ? ` → 매매 참고 중간값(${won(price / 10000)}원) 대비 연 ${yld.toFixed(1)}%(세금·관리비·공실 전)` : ""}</b>
+      <b>· 직접 쓰면: 이만큼의 월세를 내지 않는 셈이에요(대신 매입 자금의 이자·기회비용을 따져 보세요).</b></div>`;
+  }
+  RENT_SUM = base ? `임대동향(${q}, ${hit ? "이 위치의 조사 상권" : "가까운 조사 상권"} ${base.name}${near?.m ? `, 약 ${near.m}m` : ""}): ` +
+    RTYPES.filter((t) => base.stats?.[t]).map((t) => `${RLABEL[t]} ㎡당 월 ${last(base.stats[t].rent)}천원, 공실률 ${last(base.stats[t].vac)}%`).join("; ") +
+    `. ${sido} 평균: ` + RTYPES.filter((t) => R.sido[sido]?.[t]).map((t) => `${RLABEL[t]} ${last(R.sido[sido][t].rent)}천원/${last(R.sido[sido][t].vac)}%`).join(", ") + `. 이 건물 유형 추정: ${RLABEL[main]}.` : `임대동향: 가까운 조사 상권 없음. ${sido} 평균 사용.`;
+  box.innerHTML = `<div class="card"><h2>임대료·공실률 <span class="muted">한국부동산원 임대동향조사 · ${esc(q)}</span></h2>
+    <p style="margin:0 0 10px">${hit ? `이 주소는 조사 상권 <b>${esc(hit.name)}</b> 안에 있어요.` : near ? `${esc(how)} ${near.m != null ? `가장 가까운 조사 상권은 <b>${esc(near.x.name)}</b>(약 ${near.m.toLocaleString()}m)이에요.` : `<b>${esc(near.x.name)}</b> 값을 보여 드려요.`}` : `${esc(how)} 3km 안에 통계가 있는 조사 상권이 없어 ${sido} 평균만 보여 드려요.`}</p>
+    <div class="scroll"><table><thead><tr><th>유형</th><th class="num">㎡당 월 임대료</th><th class="num">1년 변화</th><th class="num">공실률</th><th class="num">${sido} 평균(임대료/공실률)</th></tr></thead><tbody>${RTYPES.map(row).join("")}</tbody></table></div>
+    ${calc || `<p class="muted" style="margin:10px 0 0">호실이나 층을 누르면 그 면적으로 월 임대료와 수익률을 단순 계산해 보여 드려요.</p>`}
+    <div class="note">★ 이 건물에 가까운 유형(추정: 호실이 나뉜 건물은 집합상가, 3층 이상이거나 330㎡ 넘는 일반 건물은 중대형상가). 상권 평균값이라 개별 호실의 실제 임대료와 다를 수 있어요. 수익률은 세금·관리비·공실·대출이자를 빼기 전 값이에요. 출처: 한국부동산원 상업용부동산 임대동향조사(분기).</div></div>`;
 }
 
 // ── AI 상담 채팅
@@ -430,6 +521,7 @@ function pageContext(q) {
     L.push(`${TR_SUM.gn} 전체 최근 1년 ㎡당 중간값 전체 ${f(S.gAll)}, 1층 ${f(S.g1)}, 그 외 층 ${f(S.gO)}`);
     if (TR_SUM.same.length) L.push("같은 지번 거래: " + TR_SUM.same.map((t) => `${t.deal_date} ${t.floor}층 ${t.building_area}㎡ ${won(t.deal_amount_10k)}원`).join("; "));
   }
+  if (RENT_SUM) L.push(RENT_SUM);
   if (ST_SUM) {
     L.push(`주변 점포(소상공인 상가정보, 반경 ${ST_SUM.radius}m) 총 ${ST_SUM.total}곳: ${ST_SUM.cats.join(", ")}`);
     L.push("많은 업종: " + ST_SUM.top.join(", "));
