@@ -202,7 +202,7 @@ async function callApi(op, params) {
   u.searchParams.set("serviceKey", KEY);
   for (const [k, v] of Object.entries(params)) u.searchParams.set(k, v);
   let last;
-  for (let i = 0; i < 2; i++) {
+  for (let i = 0; i < 3; i++) {
     try {
       const r = await fetch(u, { signal: AbortSignal.timeout(2e4) });
       if (r.status === 401 || r.status === 403) throw new AuthError(`인증 실패(${r.status}) — 건축HUB 활용신청 승인과 Decoding 키를 확인하세요`);
@@ -296,8 +296,8 @@ async function processLot(lot) {
     if (!titles.length) continue;
     const [units, floors] = await Promise.all([
       fetchAll("getBrExposPubuseAreaInfo", p, UNIT_CAP),
-      fetchAll("getBrFlrOulnInfo", p, 1e3)
-      // 층별개요: 일반건물의 층마다 용도·면적
+      // 층별개요: 일반건물의 층마다 용도·면적 (실패해도 나머지는 저장)
+      fetchAll("getBrFlrOulnInfo", p, 1e3).catch((e) => ({ items: [], total: 0, err: e.message }))
     ]);
     const bjd = sig + bj;
     const trows = await Promise.all(titles.map(async (it) => ({
@@ -382,6 +382,7 @@ async function processLot(lot) {
       건물수: trows.length,
       호실면적_줄수: umap.size - floorCount,
       층별개요_줄수: floorCount,
+      ...floors.err ? { 층별개요_오류: floors.err } : {},
       ...units.total > UNIT_CAP ? { 주의: `호실 정보가 ${units.total}줄이라 앞의 ${UNIT_CAP}줄만 저장했습니다.` } : {},
       전유부_용도별_호실수: purposes
     };
