@@ -11,7 +11,7 @@ const SITE_TOTAL = Number(process.env.CHAT_DAILY_TOTAL || 300);
 const SYSTEM = `당신은 "상가 주소 분석" 사이트의 AI 상담원입니다. 상가 경매·창업을 처음 해 보는 일반인이 사용자입니다.
 
 [답하는 방식]
-- 쉬운 한국어로, 짧게(보통 3~8문장, 필요하면 짧은 목록). 전문용어는 처음 나올 때 괄호로 풀어 주세요.
+- 쉬운 한국어로, 짧게(보통 3~8문장, 필요하면 짧은 목록). 결론을 첫 문장에 쓰세요. 전문용어는 처음 나올 때 괄호로 풀어 주세요.
 - 아래 [현재 화면 자료]에 있는 숫자·용도만 사실로 말하세요. 자료에 없는 것(임대료, 권리금, 유동인구, 특정 호실 현재 세입자 등)은 "이 화면 자료에는 없다"고 말하고 어디서 확인하는지 알려 주세요. 숫자를 지어내지 마세요.
 - 질문이 화면과 무관한 일반 질문(용어, 절차)이면 일반 지식으로 답하세요.
 - 사용자가 "이 호실", "여기", 호수(예: 102호)를 말하면 먼저 ★ 표시된 "사용자가 지금 고른 공간"을, 없으면 호실 목록·층별개요에서 찾아 답하세요. 목록에 있는데 없다고 말하지 마세요.
@@ -71,7 +71,7 @@ export default async function handler(req, res) {
       method: "POST",
       headers: { "x-api-key": API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
       body: JSON.stringify({
-        model: MODEL, max_tokens: 900,
+        model: MODEL, max_tokens: 1600,
         system: `${SYSTEM}\n\n[현재 화면 자료]\n${context}`,
         messages: msgs,
       }),
@@ -84,7 +84,8 @@ export default async function handler(req, res) {
       return res.status(502).json({ 오류: `AI 응답 오류(${r.status}): ${msg.slice(0, 200)}` });
     }
     const text = (d.content || []).filter((c) => c.type === "text").map((c) => c.text).join("\n").trim();
-    return res.status(200).json({ 답변: text || "답변을 만들지 못했어요. 다시 물어봐 주세요.", 남은횟수: Math.max(PER_VISITOR - used.mine, 0) });
+    const cut = d.stop_reason === "max_tokens" ? "\n\n(답변이 길어 여기서 끊겼어요. \"이어서\"라고 보내면 계속해요.)" : "";
+    return res.status(200).json({ 답변: (text || "답변을 만들지 못했어요. 다시 물어봐 주세요.") + cut, 남은횟수: Math.max(PER_VISITOR - used.mine, 0) });
   } catch (e) {
     return res.status(504).json({ 오류: "AI 응답이 늦어요. 잠시 후 다시 시도해 주세요." });
   }

@@ -388,9 +388,24 @@ const md = (t) => {
 };
 const flLabel = (f) => { f = String(f ?? "").trim(); return /^\d+$/.test(f) ? f + "층" : /^-\d+$/.test(f) ? "지하" + f.slice(1) + "층" : f; };
 const hoLabel = (h) => { h = String(h ?? "").trim(); return /^\d+$/.test(h) ? h + "호" : h; };
-function pageContext() {
+function unitVerdicts(q) {
+  // 질문에 나온 호수(예: 102호)를 찾아 그 호실의 화면 판단을 미리 계산해 넘김
+  const own = (DATA?.호실 || []).filter((u) => u.area_type === "전유");
+  const nums = [...String(q || "").matchAll(/(\d{1,5})\s*호/g)].map((m) => m[1]);
+  const lab = { ok: "가능", mid: "검토", no: "변경 필요" };
+  const out = [];
+  for (const n of [...new Set(nums)].slice(0, 3)) {
+    for (const u of own.filter((x) => String(x.ho_name ?? "").replace(/호$/, "") === n).slice(0, 2)) {
+      const v = judge(u.purpose, u.purpose_etc).map((b) => `${b.n}: ${lab[b.lv]} (${b.txt})`).join(" | ");
+      out.push(`★ 질문에 나온 ${u.dong_name ? u.dong_name + "동 " : ""}${hoLabel(u.ho_name)}(${flLabel(u.floor_name)}, 전용 ${u.area}㎡, 대장 용도 ${u.purpose}${u.purpose_etc && u.purpose_etc !== u.purpose ? " / " + u.purpose_etc : ""})의 화면 업종 1차 판단(그대로 전달): ${v}` + (priceText(u) ? `\n★ 이 호실 시세 참고 범위: ${priceText(u)}` : ""));
+    }
+  }
+  return out;
+}
+function pageContext(q) {
   if (!DATA) return "";
   const d = DATA, L = [];
+  for (const line of unitVerdicts(q)) L.push(line);
   if (SEL) {
     L.push(`★ 사용자가 지금 고른 공간: ${SEL.title} / 건축물대장 용도: ${SEL.purpose || "-"}${SEL.etc && SEL.etc !== SEL.purpose ? " (" + SEL.etc + ")" : ""}`);
     L.push("★ 이 공간에 대해 화면이 보여 준 업종 1차 판단(이 결과를 바꾸지 말고 그대로 전달): " + SEL.verdict.join(" | "));
@@ -440,7 +455,7 @@ async function chatSend(q) {
   CHAT.push({ role: "user", content: q }); chatDraw(true);
   $("#ci").value = ""; $("#cs").disabled = true;
   try {
-    const r = await fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ messages: CHAT.slice(CHAT.map((m) => m.role).lastIndexOf("divider") + 1).filter((m) => !String(m.content).startsWith("⚠️")).slice(-10), context: pageContext() }) });
+    const r = await fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ messages: CHAT.slice(CHAT.map((m) => m.role).lastIndexOf("divider") + 1).filter((m) => !String(m.content).startsWith("⚠️")).slice(-10), context: pageContext(q) }) });
     const x = await r.json();
     if (!r.ok) throw new Error(x.오류 || "AI 상담 오류");
     CHAT.push({ role: "assistant", content: x.답변 + (x.남은횟수 <= 3 ? `\n\n(오늘 남은 질문 ${x.남은횟수}번)` : "") });
