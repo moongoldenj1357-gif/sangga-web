@@ -87,6 +87,7 @@ const SIGUNGU = {
   "28710": "강화군",
   "28720": "옹진군"
 };
+const INC_NEW = { "28110": ["28125", "28155"], "28140": ["28125"], "28260": ["28275", "28290"] };
 const NEW_GU = { "41192": "41190", "41194": "41190", "41196": "41190", "41591": "41590", "41593": "41590", "41595": "41590", "41597": "41590" };
 const DONG_TEXT = `
 11110:10100청운동,10200신교동,10300궁정동,10400효자동,10500창성동,10600통의동,10700적선동,10800통인동,10900누상동,11000누하동,11100옥인동,11200체부동,11300필운동,11400내자동,11500사직동,11600도렴동,11700당주동,11800내수동,11900세종로,12000신문로1가,12100신문로2가,12200청진동,12300서린동,12400수송동,12500중학동,12600종로1가,12700공평동,12800관훈동,12900견지동,13000와룡동,13100권농동,13200운니동,13300익선동,13400경운동,13500관철동,13600인사동,13700낙원동,13800종로2가,13900팔판동,14000삼청동,14100안국동,14200소격동,14300화동,14400사간동,14500송현동,14600가회동,14700재동,14800계동,14900원서동,15000훈정동,15100묘동,15200봉익동,15300돈의동,15400장사동,15500관수동,15600종로3가,15700인의동,15800예지동,15900원남동,16000연지동,16100종로4가,16200효제동,16300종로5가,16400종로6가,16500이화동,16600연건동,16700충신동,16800동숭동,16900혜화동,17000명륜1가,17100명륜2가,17200명륜4가,17300명륜3가,17400창신동,17500숭인동,17600교남동,17700평동,17800송월동,17900홍파동,18000교북동,18100행촌동,18200구기동,18300평창동,18400부암동,18500홍지동,18600신영동,18700무악동
@@ -308,6 +309,7 @@ function lotFromAddress(addr) {
     const list = DONGS[listSig] ?? [];
     const hit = list.find(([, nm]) => nm === want) ?? list.find(([, nm]) => nm.endsWith(" " + want) || nm === after[after.length - 1]);
     if (hit) {
+      for (const n of INC_NEW[sig] ?? []) tries.push([n, hit[0], hit[1]]);
       tries.push([sig, hit[0], hit[1]]);
       if (NEW_GU[sig]) tries.push([NEW_GU[sig], hit[0], hit[1]]);
     }
@@ -447,10 +449,12 @@ async function readLot(bjd, bun, ji) {
   const units = await sb("GET", `building_units?${q}&select=dong_name,ho_name,floor_name,area_type,purpose,purpose_etc,area&limit=5000`);
   return { titles, units };
 }
+const REL = { "28110": ["28125", "28155"], "28140": ["28125"], "28260": ["28275", "28290"], "28125": ["28110", "28140"], "28155": ["28110"], "28275": ["28260"], "28290": ["28260"] };
 async function trades(sig, dongName) {
   const since = new Date(Date.now() - 730 * 864e5).toISOString().slice(0, 10);
   const cols = "deal_date,deal_amount_10k,building_area,price_per_m2,floor,building_use,building_type,jibun,build_year,share_type,deal_type";
-  const base = `commercial_trades?lawd_cd=eq.${sig}&cancelled=eq.false&deal_date=gte.${since}&select=${cols}&order=deal_date.desc&limit=2000`;
+  const codes = [sig, ...REL[sig] ?? []];
+  const base = `commercial_trades?lawd_cd=in.(${codes.join(",")})&cancelled=eq.false&deal_date=gte.${since}&select=${cols}&order=deal_date.desc&limit=2000`;
   let rows = await sb("GET", `${base}&dong=eq.${encodeURIComponent(dongName)}`);
   const last = dongName.split(" ").pop() ?? dongName;
   if (!rows.length && last !== dongName) rows = await sb("GET", `${base}&dong=eq.${encodeURIComponent(last)}`);
@@ -460,7 +464,7 @@ async function guTrades(sig) {
   const since = new Date(Date.now() - 365 * 864e5).toISOString().slice(0, 10);
   const out = [];
   for (let off = 0; off < 1e4; off += 1e3) {
-    const rows = await sb("GET", `commercial_trades?lawd_cd=eq.${sig}&cancelled=eq.false&deal_date=gte.${since}&price_per_m2=not.is.null&select=floor,price_per_m2,building_type,share_type&order=id&limit=1000&offset=${off}`);
+    const rows = await sb("GET", `commercial_trades?lawd_cd=in.(${[sig, ...REL[sig] ?? []].join(",")})&cancelled=eq.false&deal_date=gte.${since}&price_per_m2=not.is.null&select=floor,price_per_m2,building_type,share_type&order=id&limit=1000&offset=${off}`);
     out.push(...rows);
     if (rows.length < 1e3) break;
   }
@@ -510,10 +514,10 @@ async function handler(req, res) {
         await log(address, r.건물수 + r.호실면적_줄수 + (r.층별개요_줄수 ?? 0), true, "사이트 조회");
       }
     }
-    const sig = lot.tries[0][0];
+    const sig = hit?.sig || lot.tries[0][0];
     const dongName = hit?.dongName || lot.tries[0][2];
     const [tr, gu] = await Promise.all([trades(sig, dongName), guTrades(sig)]);
-    if (!hit) return res.status(200).json({ 결과: "대장없음", 주소: address, 지번: `${lot.plat === "1" ? "산 " : ""}${lot.bun}-${lot.ji}`, 시군구: SIGUNGU[sig], 동: dongName, 실거래: tr, 구전체: gu });
+    if (!hit) return res.status(200).json({ 결과: "대장없음", 법정동코드: lot.tries[0][0] + lot.tries[0][1], 주소: address, 지번: `${lot.plat === "1" ? "산 " : ""}${lot.bun}-${lot.ji}`, 시군구: SIGUNGU[sig], 동: dongName, 실거래: tr, 구전체: gu });
     const { titles, units } = await readLot(hit.bjd, lot.bun, lot.ji);
     return res.status(200).json({ 결과: "완료", 출처: source, 주소: address, 법정동코드: hit.bjd, 시군구: SIGUNGU[sig], 동: dongName, 지번: `${lot.bun}-${lot.ji}`, 건물: titles, 호실: units, 실거래: tr, 구전체: gu });
   } catch (e) {

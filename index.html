@@ -196,7 +196,7 @@ async function run(addr, opt = {}) {
 
 function render(d) {
   const keepAuc = AUC;
-  SEL = null; ST_SUM = null; TR_SUM = null; RENT_POS = null; RENT_SUM = null;
+  SEL = null; ST_SUM = null; TR_SUM = null; RENT_POS = null; RENT_SUM = null; RENT_UNIT = null;
   if (typeof CHAT !== "undefined" && CHAT.length && CHAT[CHAT.length - 1].role !== "divider") {
     CHAT.push({ role: "divider", content: `새 주소: ${d.주소} — 여기부터는 이 주소 기준으로 답해요` });
     if ($("#chat").classList.contains("open")) chatDraw(false);
