@@ -833,7 +833,8 @@ const CHAT = [];
 const md = (t) => {
   const lines = esc(t).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").split("\n");
   let h = "", inList = false;
-  for (const l of lines) {
+  for (let l of lines) {
+    const hd = /^\s*#{1,6}\s+(.*)/.exec(l); if (hd) l = `<b>${hd[1]}</b>`;
     const m = /^\s*(?:[-•*]|\d+[.)])\s+(.*)/.exec(l);
     if (m) { if (!inList) { h += "<ul>"; inList = true; } h += `<li>${m[1]}</li>`; }
     else { if (inList) { h += "</ul>"; inList = false; } h += l.trim() ? l + "<br>" : "<br>"; }
