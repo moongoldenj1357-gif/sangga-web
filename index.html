@@ -80,6 +80,11 @@ footer{margin-top:40px;font-size:12px;color:var(--sub)}
 .mg.a{align-self:flex-start;background:#fff;border:1px solid var(--line);border-bottom-left-radius:4px}
 .mg.a ul{margin:4px 0;padding-left:18px}
 .mg .cp{display:block;margin-top:6px;background:none;color:var(--sub);padding:0;font-size:12px;font-weight:500;text-decoration:underline}
+.mg .cards{display:grid;gap:6px;margin-top:8px}
+.mg .cards div{border:1px solid var(--line);border-radius:10px;padding:8px 10px;cursor:pointer;background:var(--bg)}
+.mg .cards div:hover{border-color:var(--accent)}
+.mg .cards small{display:block;color:var(--sub)}
+.mg .links a{display:block;margin-top:4px;color:var(--accent)}
 .chips{display:flex;gap:6px;flex-wrap:wrap}
 .chips button{background:#fff;color:var(--accent);border:1px solid var(--accent);padding:6px 10px;font-size:13px;font-weight:500}
 #cf{display:flex;flex-direction:row!important;gap:6px;padding:10px;border-top:1px solid var(--line)}
@@ -108,6 +113,10 @@ footer{margin-top:40px;font-size:12px;color:var(--sub)}
     <select id="fFail"><option value="">유찰 전체</option><option value="1">유찰 1회+</option><option value="2">유찰 2회+</option><option value="3">유찰 3회+</option></select>
     <select id="fSort"><option value="date">매각기일 가까운 순</option><option value="price">최저가 낮은 순</option><option value="fail">유찰 많은 순</option><option value="new">새로 나온 순</option></select>
     <input id="fQ" placeholder="주소·사건번호 검색" style="flex:1;min-width:140px">
+  </div>
+  <div class="note" style="display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap;margin-top:10px">
+    <span>💬 <b>창업 자리를 말로 찾아보세요.</b> 예: "연남동 20~30평 식당 자리 경매로 나온 거 있어?"</span>
+    <button type="button" id="askFind" style="padding:8px 14px;font-size:14px">AI에게 물어보기</button>
   </div>
   <div id="aucMeta" class="muted"></div>
   <div id="aucList"></div>
@@ -165,14 +174,16 @@ let DATA = null;
 $("#f").onsubmit = (e) => { e.preventDefault(); AUC = null; run($("#addr").value); };
 document.querySelectorAll(".ex a").forEach((a) => a.onclick = () => { AUC = null; $("#addr").value = a.dataset.a; run(a.dataset.a); });
 
-async function run(addr) {
+async function run(addr, opt = {}) {
   addr = addr.trim(); if (!addr) return;
   const go = $("#go"); go.disabled = true; go.innerHTML = '<span class="spin"></span>';
-  $("#out").innerHTML = '<div class="card muted">건축물대장과 실거래를 불러오는 중입니다. 처음 보는 건물은 10초쯤 걸릴 수 있어요.</div>';
+  const mine = AUC;
+  if (!opt.keepTop) $("#out").innerHTML = '<div class="card muted">건축물대장과 실거래를 불러오는 중입니다. 처음 보는 건물은 10초쯤 걸릴 수 있어요.</div>';
   try {
     const r = await fetch("/api/lookup?address=" + encodeURIComponent(addr));
     const d = await r.json();
     if (!r.ok) throw new Error(d.오류 || "조회 실패");
+    if (AUC !== mine) return;   // 그사이 다른 물건을 눌렀으면 버림
     DATA = d; render(d);
     history.replaceState(null, "", AUC ? "?auc=" + encodeURIComponent(AUC.id) : "?q=" + encodeURIComponent(addr));
   } catch (e) {
@@ -433,10 +444,12 @@ function riskInfo(a) {
 }
 const RISKY = /유치권|법정지상권|지분|대지권\s*미등기|대지권\s*없|위반건축|선순위|대항력|인수|임차인|재매각|토지별도등기|분묘|농지취득|공유자/;
 
+let LIST_SCROLL = 0;
 function setMode(m) {
-  document.querySelectorAll(".tabs button").forEach((b) => b.classList.toggle("on", b.dataset.m === m));
+  // m: "auc"(목록) | "aucDetail"(경매 물건 상세) | "addr"(주소 분석)
+  document.querySelectorAll(".tabs button").forEach((b) => b.classList.toggle("on", b.dataset.m === (m === "aucDetail" ? "auc" : m)));
   $("#aucPanel").hidden = m !== "auc"; $("#addrPanel").hidden = m !== "addr";
-  if (m === "auc") { $("#out").innerHTML = ""; if (!$("#aucList").innerHTML) loadAuc(1); }
+  if (m === "auc") { $("#out").innerHTML = ""; if (!$("#aucList").innerHTML) loadAuc(1); else setTimeout(() => window.scrollTo(0, LIST_SCROLL), 0); }
 }
 document.querySelectorAll(".tabs button").forEach((b) => b.onclick = () => { if (b.dataset.m === "auc") { AUC = null; history.replaceState(null, "", "?"); } setMode(b.dataset.m); });
 
@@ -492,11 +505,17 @@ let fqT; $("#fQ").oninput = () => { clearTimeout(fqT); fqT = setTimeout(() => lo
 
 function openAuc(it) {
   if (!it) return;
-  AUC = it; setMode("addr");
+  if (!$("#aucPanel").hidden) LIST_SCROLL = window.scrollY;
+  AUC = it; setMode("aucDetail");
   $("#addr").value = it.lot_address || "";
-  window.scrollTo({ top: 0, behavior: "smooth" });
-  run(it.lot_address || "");
+  // 경매 정보는 이미 손에 있으니 바로 보여 주고, 건물·시세 분석은 아래에서 이어서 불러옴
+  $("#out").innerHTML = `<div id="aucStage"></div><div class="card muted"><span class="spin" style="border-color:var(--accent);border-right-color:transparent"></span> 아래에 건물 용도·시세·임대료·주변 점포 분석을 불러오는 중이에요. 처음 보는 건물은 10초쯤 걸려요.</div>`;
+  renderAuc(null);
+  window.scrollTo({ top: 0 });
+  history.replaceState(null, "", "?auc=" + encodeURIComponent(it.id));
+  run(it.lot_address || "", { keepTop: true });
 }
+function backToList() { AUC = null; history.replaceState(null, "", "?"); setMode("auc"); }
 function autoPickUnit() {
   if (!AUC) return;
   const m = /(\d{1,5})\s*호/.exec(`${AUC.buildings || ""} ${AUC.address || ""}`);
@@ -523,7 +542,7 @@ function renderAuc(unit) {
   } else cmp = `<p class="muted" style="margin:10px 0 0">아래 호실·층 목록에서 이 물건의 호실을 누르면 실거래 시세와 비교해 드려요.${/호/.test(a.buildings || "") ? "" : " (물건 정보에 호수가 없어요)"}</p>`;
   const tax = a.min_price * 0.046;
   const risky = a.remarks && RISKY.test(a.remarks);
-  box.innerHTML = `<div class="card stage"><h2>1단계 · 낙찰받을까? <span class="muted">${esc(a.print_case_no)} · ${esc(a.court_name || "")} ${esc(a.dept_name || "")}${a.tel ? " ☎ " + esc(a.tel) : ""}</span></h2>
+  box.innerHTML = `<button type="button" onclick="backToList()" style="background:none;color:var(--accent);padding:4px 0;font-size:14px;margin-top:14px">← 경매 물건 목록으로</button><div class="card stage" style="margin-top:6px"><h2>1단계 · 낙찰받을까? <span class="muted">${esc(a.print_case_no)} · ${esc(a.court_name || "")} ${esc(a.dept_name || "")}${a.tel ? " ☎ " + esc(a.tel) : ""}</span></h2>
     <div class="grid">
       <div class="kv"><b>감정가</b><span>${wonW(a.appraised)}</span></div>
       <div class="kv"><b>최저매각가격</b><span class="big">${wonW(a.min_price)}</span><b>감정가의 ${rate ? Math.round(rate * 100) : "-"}%</b></div>
@@ -693,14 +712,17 @@ function pageContext(q) {
   return L.join("\n").slice(0, 9000);
 }
 function chatSuggest() {
-  if (!DATA) return ["근린생활시설 1종과 2종은 뭐가 달라요?", "용도변경과 기재변경 차이는?", "상가 낙찰받으면 세금이 얼마나 나와요?"];
+  if (!DATA) return ["연남동 20~30평 식당 자리 경매로 나온 거 있어?", "1층 카페 할 만한 5억 이하 경매 상가 찾아줘", "식당 창업 자금·지원 받을 수 있는 곳 알려줘"];
   const sp = SEL ? SEL.title.split(" (")[0] : "이 건물";  // 예: 102호
   return [`${sp}에서 카페를 하려면 뭘 확인해야 해요?`, "이 동네 실거래 숫자를 쉽게 풀어 주세요", "주변 점포를 보면 어떤 업종이 경쟁이 적어요?"];
 }
 function chatDraw(pending) {
   const cm = $("#cm");
   let h = CHAT.length ? "" : `<div class="mg a">안녕하세요. 화면에 띄운 건물·호실·실거래·주변 점포 자료를 보고 답해 드려요. 용어나 절차도 물어보세요.</div>`;
-  CHAT.forEach((m, i) => h += m.role === "divider" ? `<div class="muted" style="text-align:center;font-size:12px;margin:4px 0">── ${esc(m.content)} ──</div>` : m.role === "user" ? `<div class="mg u">${esc(m.content)}</div>` : `<div class="mg a">${md(m.content)}<button type="button" class="cp" data-c="${i}">복사</button></div>`);
+  const extra = (m) => (m.items?.length ? `<div class="cards">${m.items.map((it) => `<div data-auc="${esc(it.id)}"><b>${esc(it.print_case_no)}</b> ${esc(it.sigungu || "")} ${esc(it.dong || "")}${it.building_name ? " · " + esc(it.building_name) : ""}
+      <small>${it.floor != null ? (it.floor < 0 ? "지하" + -it.floor : it.floor) + "층 · " : ""}${it.pyeong ? it.pyeong + "평(" + Math.round(it.area_m2) + "㎡) · " : ""}최저가 ${wonW(it.min_price)} · 유찰 ${it.fail_count ?? 0}회 · ${esc(it.sale_date || "")}${it.risky ? " · ⚠ 권리확인" : ""}</small></div>`).join("")}${m.total > m.items.length ? `<small class="muted">조건에 맞는 ${m.total}건 중 ${m.items.length}건</small>` : ""}</div>` : "") +
+    (m.links?.length ? `<div class="links">${m.links.map((l) => `<a href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.기관)} ↗</a>`).join("")}</div>` : "");
+  CHAT.forEach((m, i) => h += m.role === "divider" ? `<div class="muted" style="text-align:center;font-size:12px;margin:4px 0">── ${esc(m.content)} ──</div>` : m.role === "user" ? `<div class="mg u">${esc(m.content)}</div>` : `<div class="mg a">${md(m.content)}${extra(m)}<button type="button" class="cp" data-c="${i}">복사</button></div>`);
   if (pending) h += `<div class="mg a muted">답변을 쓰는 중…</div>`;
   if (!pending) h += `<div class="chips">${chatSuggest().map((q) => `<button type="button" data-q="${esc(q)}">${esc(q)}</button>`).join("")}</div>`;
   cm.innerHTML = h; cm.scrollTop = cm.scrollHeight;
@@ -710,19 +732,27 @@ async function chatSend(q) {
   CHAT.push({ role: "user", content: q }); chatDraw(true);
   $("#ci").value = ""; $("#cs").disabled = true;
   try {
-    const r = await fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ messages: CHAT.slice(CHAT.map((m) => m.role).lastIndexOf("divider") + 1).filter((m) => !String(m.content).startsWith("⚠️")).slice(-10), context: pageContext(q) }) });
+    const r = await fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ messages: CHAT.slice(CHAT.map((m) => m.role).lastIndexOf("divider") + 1).filter((m) => !String(m.content).startsWith("⚠️")).slice(-10).map((m) => ({ role: m.role, content: m.content + (m.items?.length ? `\n[찾은 물건: ${m.items.map((i) => i.print_case_no).join(", ")}]` : "") })), context: pageContext(q) }) });
     const x = await r.json();
     if (!r.ok) throw new Error(x.오류 || "AI 상담 오류");
-    CHAT.push({ role: "assistant", content: x.답변 + (x.남은횟수 <= 3 ? `\n\n(오늘 남은 질문 ${x.남은횟수}번)` : "") });
+    CHAT.push({ role: "assistant", content: x.답변 + (x.남은횟수 <= 3 ? `\n\n(오늘 남은 질문 ${x.남은횟수}번)` : ""), items: x.물건 || null, total: x.찾은건수 || 0, links: x.지원기관 || null });
   } catch (e) {
     CHAT.pop(); CHAT.push({ role: "user", content: q }); CHAT.push({ role: "assistant", content: "⚠️ " + e.message });
   } finally { $("#cs").disabled = false; chatDraw(false); }
 }
+$("#askFind").onclick = () => { $("#chatBtn").click(); $("#ci").value = "연남동 20~30평 식당 자리 경매로 나온 거 있어?"; $("#ci").focus(); };
 $("#chatBtn").onclick = () => { $("#chat").classList.add("open"); $("#chatBtn").style.display = "none"; chatDraw(false); $("#ci").focus(); };
 $("#cx").onclick = () => { $("#chat").classList.remove("open"); $("#chatBtn").style.display = ""; };
 $("#cf").onsubmit = (e) => { e.preventDefault(); chatSend($("#ci").value); };
 $("#ci").onkeydown = (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); chatSend($("#ci").value); } };
 $("#cm").onclick = (e) => {
+  const card = e.target.closest("[data-auc]");
+  if (card) {
+    const m = CHAT.find((x) => x.items?.some((i) => i.id === card.dataset.auc));
+    const it = m?.items.find((i) => i.id === card.dataset.auc);
+    if (it) { if (window.innerWidth < 700) $("#cx").click(); openAuc(it); }
+    return;
+  }
   const c = e.target.closest("[data-c]"), s = e.target.closest("[data-q]");
   if (c) { navigator.clipboard?.writeText(CHAT[+c.dataset.c].content).then(() => { c.textContent = "복사됨"; setTimeout(() => c.textContent = "복사", 1500); }).catch(() => {}); }
   if (s) chatSend(s.dataset.q);
@@ -730,7 +760,7 @@ $("#cm").onclick = (e) => {
 
 const qp = new URLSearchParams(location.search);
 const q = qp.get("q"), aucId = qp.get("auc");
-if (aucId) { setMode("addr"); fetch("/api/auctions?id=" + encodeURIComponent(aucId)).then((r) => r.json()).then((x) => x.item ? openAuc(x.item) : setMode("auc")).catch(() => setMode("auc")); }
+if (aucId) { setMode("aucDetail"); fetch("/api/auctions?id=" + encodeURIComponent(aucId)).then((r) => r.json()).then((x) => x.item ? openAuc(x.item) : setMode("auc")).catch(() => setMode("auc")); }
 else if (q) { setMode("addr"); $("#addr").value = q; run(q); }
 else setMode("auc");
 </script>
