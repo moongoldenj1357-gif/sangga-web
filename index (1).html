@@ -165,18 +165,22 @@ let DATA = null;
 $("#f").onsubmit = (e) => { e.preventDefault(); AUC = null; run($("#addr").value); };
 document.querySelectorAll(".ex a").forEach((a) => a.onclick = () => { AUC = null; $("#addr").value = a.dataset.a; run(a.dataset.a); });
 
-async function run(addr) {
+async function run(addr, opt = {}) {
   addr = addr.trim(); if (!addr) return;
   const go = $("#go"); go.disabled = true; go.innerHTML = '<span class="spin"></span>';
-  $("#out").innerHTML = '<div class="card muted">건축물대장과 실거래를 불러오는 중입니다. 처음 보는 건물은 10초쯤 걸릴 수 있어요.</div>';
+  const mine = AUC;
+  if (!opt.keepTop) $("#out").innerHTML = '<div class="card muted">건축물대장과 실거래를 불러오는 중입니다. 처음 보는 건물은 10초쯤 걸릴 수 있어요.</div>';
   try {
     const r = await fetch("/api/lookup?address=" + encodeURIComponent(addr));
     const d = await r.json();
     if (!r.ok) throw new Error(d.오류 || "조회 실패");
+    if (AUC !== mine) return;   // 그사이 다른 물건을 눌렀으면 버림
     DATA = d; render(d);
     history.replaceState(null, "", AUC ? "?auc=" + encodeURIComponent(AUC.id) : "?q=" + encodeURIComponent(addr));
   } catch (e) {
-    $("#out").innerHTML = `<div class="err">${esc(e.message)}</div>`;
+    // 건물 조회가 실패해도 경매 물건 정보(1단계)는 보여 줌
+    $("#out").innerHTML = (AUC ? `<div id="aucStage"></div>` : "") + `<div class="err">${esc(e.message)}${/초당|요청제한/.test(e.message) ? "<br>공공데이터포털이 잠시 바빠요. 10초쯤 뒤 다시 [분석]을 눌러 주세요." : ""}</div>`;
+    if (AUC) renderAuc(null);
   } finally { go.disabled = false; go.textContent = "분석"; }
 }
 
@@ -431,10 +435,12 @@ function riskInfo(a) {
 }
 const RISKY = /유치권|법정지상권|지분|대지권\s*미등기|대지권\s*없|위반건축|선순위|대항력|인수|임차인|재매각|토지별도등기|분묘|농지취득|공유자/;
 
+let LIST_SCROLL = 0;
 function setMode(m) {
-  document.querySelectorAll(".tabs button").forEach((b) => b.classList.toggle("on", b.dataset.m === m));
+  // m: "auc"(목록) | "aucDetail"(경매 물건 상세) | "addr"(주소 분석)
+  document.querySelectorAll(".tabs button").forEach((b) => b.classList.toggle("on", b.dataset.m === (m === "aucDetail" ? "auc" : m)));
   $("#aucPanel").hidden = m !== "auc"; $("#addrPanel").hidden = m !== "addr";
-  if (m === "auc") { $("#out").innerHTML = ""; if (!$("#aucList").innerHTML) loadAuc(1); }
+  if (m === "auc") { $("#out").innerHTML = ""; if (!$("#aucList").innerHTML) loadAuc(1); else setTimeout(() => window.scrollTo(0, LIST_SCROLL), 0); }
 }
 document.querySelectorAll(".tabs button").forEach((b) => b.onclick = () => { if (b.dataset.m === "auc") { AUC = null; history.replaceState(null, "", "?"); } setMode(b.dataset.m); });
 
@@ -490,11 +496,17 @@ let fqT; $("#fQ").oninput = () => { clearTimeout(fqT); fqT = setTimeout(() => lo
 
 function openAuc(it) {
   if (!it) return;
-  AUC = it; setMode("addr");
+  if (!$("#aucPanel").hidden) LIST_SCROLL = window.scrollY;
+  AUC = it; setMode("aucDetail");
   $("#addr").value = it.lot_address || "";
-  window.scrollTo({ top: 0, behavior: "smooth" });
-  run(it.lot_address || "");
+  // 경매 정보는 이미 손에 있으니 바로 보여 주고, 건물·시세 분석은 아래에서 이어서 불러옴
+  $("#out").innerHTML = `<div id="aucStage"></div><div class="card muted"><span class="spin" style="border-color:var(--accent);border-right-color:transparent"></span> 아래에 건물 용도·시세·임대료·주변 점포 분석을 불러오는 중이에요. 처음 보는 건물은 10초쯤 걸려요.</div>`;
+  renderAuc(null);
+  window.scrollTo({ top: 0 });
+  history.replaceState(null, "", "?auc=" + encodeURIComponent(it.id));
+  run(it.lot_address || "", { keepTop: true });
 }
+function backToList() { AUC = null; history.replaceState(null, "", "?"); setMode("auc"); }
 function autoPickUnit() {
   if (!AUC) return;
   const m = /(\d{1,5})\s*호/.exec(`${AUC.buildings || ""} ${AUC.address || ""}`);
@@ -521,7 +533,7 @@ function renderAuc(unit) {
   } else cmp = `<p class="muted" style="margin:10px 0 0">아래 호실·층 목록에서 이 물건의 호실을 누르면 실거래 시세와 비교해 드려요.${/호/.test(a.buildings || "") ? "" : " (물건 정보에 호수가 없어요)"}</p>`;
   const tax = a.min_price * 0.046;
   const risky = a.remarks && RISKY.test(a.remarks);
-  box.innerHTML = `<div class="card stage"><h2>1단계 · 낙찰받을까? <span class="muted">${esc(a.print_case_no)} · ${esc(a.court_name || "")} ${esc(a.dept_name || "")}${a.tel ? " ☎ " + esc(a.tel) : ""}</span></h2>
+  box.innerHTML = `<button type="button" onclick="backToList()" style="background:none;color:var(--accent);padding:4px 0;font-size:14px;margin-top:14px">← 경매 물건 목록으로</button><div class="card stage" style="margin-top:6px"><h2>1단계 · 낙찰받을까? <span class="muted">${esc(a.print_case_no)} · ${esc(a.court_name || "")} ${esc(a.dept_name || "")}${a.tel ? " ☎ " + esc(a.tel) : ""}</span></h2>
     <div class="grid">
       <div class="kv"><b>감정가</b><span>${wonW(a.appraised)}</span></div>
       <div class="kv"><b>최저매각가격</b><span class="big">${wonW(a.min_price)}</span><b>감정가의 ${rate ? Math.round(rate * 100) : "-"}%</b></div>
@@ -728,7 +740,7 @@ $("#cm").onclick = (e) => {
 
 const qp = new URLSearchParams(location.search);
 const q = qp.get("q"), aucId = qp.get("auc");
-if (aucId) { setMode("addr"); fetch("/api/auctions?id=" + encodeURIComponent(aucId)).then((r) => r.json()).then((x) => x.item ? openAuc(x.item) : setMode("auc")).catch(() => setMode("auc")); }
+if (aucId) { setMode("aucDetail"); fetch("/api/auctions?id=" + encodeURIComponent(aucId)).then((r) => r.json()).then((x) => x.item ? openAuc(x.item) : setMode("auc")).catch(() => setMode("auc")); }
 else if (q) { setMode("addr"); $("#addr").value = q; run(q); }
 else setMode("auc");
 </script>
