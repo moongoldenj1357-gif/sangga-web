@@ -3,7 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>상가 주소 분석</title>
+<title>좋은목 — 상권으로 판단하는 낙찰·임대·창업</title>
+<meta name="description" content="사든, 빌리든, 차리든 먼저 목을 보세요. 서울·경기·인천 상가 경매, 임대 조건, 창업 자리를 상권 자료로 분석합니다.">
 <link rel="preconnect" href="https://cdn.jsdelivr.net">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.min.css">
 <style>
@@ -64,6 +65,11 @@ select,.tools input{font:inherit;font-size:14px;padding:7px 10px;border:1px soli
 .stage{border:2px solid var(--accent)}
 .danger{background:var(--bad-soft);color:var(--bad);border-radius:10px;padding:12px 14px;margin-top:10px;font-size:14px}
 .danger ul{margin:6px 0 0;padding-left:18px}
+.doors{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;margin-top:12px}
+.door{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;cursor:pointer;display:flex;flex-direction:column;gap:6px}
+.door:hover{border-color:var(--accent);box-shadow:0 4px 14px rgba(0,0,0,.06)}
+.door b{font-size:17px}.door p{margin:0;color:var(--sub);font-size:14px;flex:1}.door span{color:var(--accent);font-weight:600;font-size:14px}
+.hq{background:#fff;color:var(--ink);border:1px solid var(--line);padding:7px 12px;font-size:14px;font-weight:500;border-radius:99px}
 .lsf{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;align-items:end}
 .lsf label{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--sub)}
 .lsf input,.lsf select{width:100%;box-sizing:border-box;padding:9px 10px;border:1px solid var(--line);border-radius:8px;font-size:15px;background:#fff;color:var(--ink)}
@@ -99,10 +105,39 @@ footer{margin-top:40px;font-size:12px;color:var(--sub)}
 <body>
 <div class="wrap">
 <header>
-  <h1>상가 경매·창업 분석</h1>
-  <p>경매 물건이나 지번 주소 하나로 낙찰가 판단, 임대 vs 직접 사용, 가능한 업종까지 한 번에 봅니다. 서울·경기·인천(수도권)만 됩니다.</p>
+  <h1 style="cursor:pointer" onclick="goHome()">좋은목 <span style="font-size:15px;font-weight:500;color:var(--sub)">상권으로 판단하는 낙찰·임대·창업</span></h1>
+  <p>사든, 빌리든, 차리든 — 먼저 목을 보세요. 서울·경기·인천의 실거래·임대료·공실률·주변 점포·경매 물건을 한 화면에서 봅니다.</p>
 </header>
-<nav class="tabs"><button type="button" data-m="auc">경매 물건 찾기</button><button type="button" data-m="addr">주소로 분석</button></nav>
+<nav class="tabs"><button type="button" data-m="home">처음</button><button type="button" data-m="auc">경매 물건 찾기</button><button type="button" data-m="addr">주소로 분석</button></nav>
+<div id="homePanel" hidden>
+  <div class="card" style="margin-top:14px;border:2px solid var(--accent)">
+    <h2 style="font-size:20px;margin:0 0 4px">어디서, 무엇을 하려고 하세요?</h2>
+    <p class="muted" style="margin:0 0 12px">편하게 적으면 AI가 그 동네·업종에 맞춰 경매 물건, 필요한 건물 용도, 임대와 낙찰 비교, 지원사업까지 정리해 드려요.</p>
+    <form id="homeF" style="display:flex;gap:8px;flex-wrap:wrap" onsubmit="event.preventDefault();homeAsk($('#homeQ').value)">
+      <input id="homeQ" placeholder="예: 홍대 근처에서 10평 정도 경양식집을 해 보고 싶어요" style="flex:1;min-width:220px;padding:14px;font-size:16px;border:1px solid var(--line);border-radius:10px">
+      <button type="submit" style="padding:14px 20px;font-size:16px">AI에게 물어보기</button>
+    </form>
+    <div class="chips" style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap">
+      <button type="button" class="hq" data-q="홍대 근처에서 10평 정도 경양식집을 해 보고 싶어요. 임대가 나을지 낙찰이 나을지, 뭘 봐야 할지 알려 주세요.">🍝 홍대 10평 경양식집</button>
+      <button type="button" class="hq" data-q="5억 이하로 임대 수익이 나올 만한 서울 상가를 경매로 사고 싶어요.">💰 5억 이하 수익형 상가 낙찰</button>
+      <button type="button" class="hq" data-q="직원 5명이 쓸 20~30평 사무실을 사거나 낙찰받고 싶어요. 성남 분당 쪽으로요.">🏢 분당 30평 사무실</button>
+      <button type="button" class="hq" data-q="경기 남부에서 200평 정도 소규모 제조 공장이나 창고 자리를 찾고 있어요.">🏭 경기 남부 공장·창고</button>
+    </div>
+  </div>
+  <div class="doors">
+    <div class="door" onclick="goDoor('invest')"><b>💰 투자로 낙찰받기</b><p>임대 수익이 나는 상가·오피스텔을 경매로. 실거래 시세와 임대료로 수익률을 따져 봐요.</p><span>경매 물건 보기 →</span></div>
+    <div class="door" onclick="goDoor('use')"><b>🏢 내가 쓸 곳 찾기</b><p>사무실·가게·공장·창고를 사거나 낙찰받기. 용도와 토지 규제로 그 공간을 쓸 수 있는지 봐요.</p><span>사무실·공장·창고 보기 →</span></div>
+    <div class="door" onclick="goDoor('startup')"><b>🏪 창업 자리 찾기</b><p>어느 상권에서, 임대와 낙찰 중 무엇으로? 월세 수준·경쟁 점포·업종 가능 여부·지원사업까지.</p><span>마음에 둔 자리 점검하기 →</span></div>
+  </div>
+  <div class="card" style="margin-top:12px">
+    <h2 style="font-size:16px;margin:0 0 8px">세 길은 모두 "상권 분석"에서 만나요</h2>
+    <ol style="margin:0;padding-left:20px;line-height:1.8">
+      <li><b>목 보기</b> — 그 자리의 실거래 시세, 상권 임대료·공실률, 주변 점포, 토지이용계획</li>
+      <li><b>방법 고르기</b> — 낙찰(경매 물건·권리관계 서류 AI 정리) 또는 임대(보증금·월세 조건 점검)</li>
+      <li><b>할 일 정하기</b> — 그 공간에서 가능한 업종, 필요한 용도변경, 창업 지원사업</li>
+    </ol>
+  </div>
+</div>
 <div id="aucPanel" hidden>
   <div class="chips" id="fGrp" style="margin-top:14px">
     <button type="button" data-g="main" class="on">상가·오피스텔</button><button type="button" data-g="shop">상가</button><button type="button" data-g="officetel">오피스텔</button>
@@ -121,6 +156,7 @@ footer{margin-top:40px;font-size:12px;color:var(--sub)}
     <span>💬 <b>창업 자리를 말로 찾아보세요.</b> 예: "연남동 20~30평 식당 자리 경매로 나온 거 있어?"</span>
     <button type="button" id="askFind" style="padding:8px 14px;font-size:14px">AI에게 물어보기</button>
   </div>
+  <div id="aucHint"></div>
   <div id="aucMeta" class="muted"></div>
   <div id="aucList"></div>
 </div>
@@ -648,12 +684,32 @@ const RISKY = /유치권|법정지상권|지분|대지권\s*미등기|대지권\
 
 let LIST_SCROLL = 0;
 function setMode(m) {
-  // m: "auc"(목록) | "aucDetail"(경매 물건 상세) | "addr"(주소 분석)
+  // m: "home"(처음) | "auc"(목록) | "aucDetail"(경매 물건 상세) | "addr"(주소 분석)
   document.querySelectorAll(".tabs button").forEach((b) => b.classList.toggle("on", b.dataset.m === (m === "aucDetail" ? "auc" : m)));
-  $("#aucPanel").hidden = m !== "auc"; $("#addrPanel").hidden = m !== "addr";
+  $("#aucPanel").hidden = m !== "auc"; $("#addrPanel").hidden = m !== "addr"; $("#homePanel").hidden = m !== "home";
+  if (m === "home") $("#out").innerHTML = "";
   if (m === "auc") { $("#out").innerHTML = ""; if (!$("#aucList").innerHTML) loadAuc(1); else setTimeout(() => window.scrollTo(0, LIST_SCROLL), 0); }
 }
-document.querySelectorAll(".tabs button").forEach((b) => b.onclick = () => { if (b.dataset.m === "auc") { AUC = null; history.replaceState(null, "", "?"); } setMode(b.dataset.m); });
+document.querySelectorAll(".tabs button").forEach((b) => b.onclick = () => { if (b.dataset.m === "auc") { AUC = null; history.replaceState(null, "", "?"); $("#aucHint").innerHTML = ""; } setMode(b.dataset.m); });
+function goHome() { AUC = null; history.replaceState(null, "", "?"); setMode("home"); window.scrollTo(0, 0); }
+function homeAsk(q) {
+  q = String(q || "").trim(); if (!q) { $("#homeQ").focus(); return; }
+  $("#chatBtn").click(); chatSend(q);
+}
+document.querySelectorAll(".hq").forEach((b) => b.onclick = () => { $("#homeQ").value = b.dataset.q; homeAsk(b.dataset.q); });
+function goDoor(k) {
+  if (k === "startup") {
+    setMode("addr"); $("#addr").focus();
+    $("#out").innerHTML = `<div class="note" style="margin-top:12px">마음에 둔 매물(네이버부동산 등에서 본 곳)의 <b>지번 주소</b>를 넣고 [분석]을 누르세요. 상권 임대료·공실률·주변 점포·업종 가능 여부가 나오고, <b>"임대로 들어갈까?"</b> 칸에 보증금·월세를 넣으면 조건을 점검해 드려요. 아직 자리가 없으면 위 <a href="#" onclick="event.preventDefault();goHome()">처음 화면</a>에서 AI에게 동네·업종을 물어보세요.</div>`;
+    return;
+  }
+  const g = k === "invest" ? "main" : "office";
+  AUC_GRP = g; document.querySelectorAll("#fGrp button").forEach((x) => x.classList.toggle("on", x.dataset.g === g));
+  AUC = null; history.replaceState(null, "", "?"); setMode("auc"); if (AUC_FACETS) fillSgg(); loadAuc(1);
+  $("#aucHint").innerHTML = k === "use"
+    ? `<div class="note" style="margin-top:8px">🏢 <b>내가 쓸 곳 찾기</b> — 사무실·업무 물건을 보여 드려요. 공장·창고는 위 <b>공장·지식산업센터</b>, <b>창고</b> 버튼을 누르세요. 물건을 누르면 용도·토지 규제·권리관계 서류까지 볼 수 있어요.</div>`
+    : `<div class="note" style="margin-top:8px">💰 <b>투자로 낙찰받기</b> — 물건을 누르면 실거래 시세와 비교한 최저가 수준, 상권 임대료로 계산한 단순 수익률, 권리관계 서류 AI 정리를 볼 수 있어요.</div>`;
+}
 
 async function loadFacets() {
   if (AUC_FACETS) return AUC_FACETS;
@@ -1097,7 +1153,7 @@ const q = qp.get("q"), aucId = qp.get("auc"), shareId = qp.get("share");
 if (shareId) showShare(shareId);
 else if (aucId) { setMode("aucDetail"); fetch("/api/auctions?id=" + encodeURIComponent(aucId)).then((r) => r.json()).then((x) => x.item ? openAuc(x.item) : setMode("auc")).catch(() => setMode("auc")); }
 else if (q) { setMode("addr"); $("#addr").value = q; run(q); }
-else setMode("auc");
+else setMode("home");
 </script>
 </body>
 </html>
