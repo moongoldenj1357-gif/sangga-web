@@ -68,7 +68,7 @@ export async function landUse(pnu) {
     이용상황: c.ladUseSittnNm, 도로접면: c.roadSideCodeNm, 지형: [c.tpgrphHgCodeNm, c.tpgrphFrmCodeNm].filter(Boolean).join(" · "),
     공시지가: c.pblntfPclnd ? Number(c.pblntfPclnd) : null,
   } : null;
-  const names = zones.map((z) => z.이름).join(" ");
+  const names = zones.filter((z) => z.저촉 !== "접합").map((z) => z.이름).join(" ");  // 경계에 맞닿기만 한 것은 풀이에서 뺌
   const hints = HINTS.filter(([re]) => re.test(names + " " + (land?.용도지역 || ""))).map(([, t]) => t);
   const errs = [U.err, ua.__e, !c ? (C.err || lc1.__e) : null].filter(Boolean);
   if (!zones.length && !land) return { 결과: "없음", 안내: errs.length ? "브이월드 조회 실패: " + errs.join(" / ") : "이 필지의 토지이용계획 정보를 찾지 못했어요.", pnu };
