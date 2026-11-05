@@ -1,23 +1,8 @@
 // 경매 물건 목록 (사이트 검색 화면용) — Supabase auction_items를 읽어 돌려줌
 const SB_URL = (process.env.SUPABASE_URL ?? "").trim().replace(/\/+$/, "").replace(/\/rest\/v1$/, "");
 const SB_KEY = process.env.SUPABASE_SECRET_KEY ?? "";
-const RESIDENTIAL = /아파트|다세대|연립|단독|다가구|주택|빌라|도시형|기숙사|대지|전$|답$|임야|토지|과수원|잡종지/;
-// 용도 묶음: 상가·오피스텔 중심으로 단순하게
-const GROUPS = {
-  shop: /근린|상가|점포|판매|소매|상점/,
-  officetel: /오피스텔/,
-  office: /사무|업무/,
-  factory: /공장|지식산업|아파트형/,
-};
-function usageList(all, grp) {
-  const non = all.filter((u) => u && !RESIDENTIAL.test(u));
-  const isIn = (u, g) => (g === "office" ? GROUPS.office.test(u) && !GROUPS.officetel.test(u) : GROUPS[g].test(u));
-  if (grp === "main") return non.filter((u) => isIn(u, "shop") || isIn(u, "officetel"));
-  if (GROUPS[grp]) return non.filter((u) => isIn(u, grp));
-  if (grp === "etc") return non.filter((u) => !Object.keys(GROUPS).some((g) => isIn(u, g)));
-  return non;   // nonres
-}
-const COLS = "id,court_name,dept_name,tel,print_case_no,item_no,sido_cd,sgg_cd,sigungu,dong,lot_address,address,building_name,usage,appraised,min_price,fail_count,sale_date,sale_place,buildings,areas,min_area,max_area,remarks,lot_count,first_seen,last_seen";
+const CATS = { main: ["shop", "officetel"], shop: ["shop"], officetel: ["officetel"], office: ["office"], factory: ["factory"], etc: ["etc"] };
+const COLS = "id,category,court_name,dept_name,tel,print_case_no,item_no,sido_cd,sgg_cd,sigungu,dong,lot_address,address,building_name,usage,appraised,min_price,fail_count,sale_date,sale_place,buildings,areas,min_area,max_area,remarks,lot_count,first_seen,last_seen";
 
 async function sb(path) {
   const h = { apikey: SB_KEY };
@@ -43,9 +28,7 @@ export default async function handler(req, res) {
     if (p.facets) {
       const f = await facets();
       const [run] = (await sb("auction_runs?select=run_date,done,saved,totals&order=run_date.desc&limit=1")).rows;
-      const uses = [...new Set(f.map((x) => x.usage))];
-      const groups = Object.fromEntries(["main", "shop", "officetel", "office", "factory", "etc"].map((g) => [g, usageList(uses, g)]));
-      return res.status(200).json({ facets: f, groups, 최근수집: run || null });
+      return res.status(200).json({ facets: f, groups: CATS, 최근수집: run || null });
     }
     if (p.id) {
       const { rows } = await sb(`auction_items?id=eq.${encodeURIComponent(p.id)}&select=${COLS}`);
@@ -54,12 +37,8 @@ export default async function handler(req, res) {
     const f = [`active=eq.true`, `select=${COLS}`];
     if (/^\d{2}$/.test(p.sido || "")) f.push(`sido_cd=eq.${p.sido}`);
     if (/^\d{5}$/.test(p.sgg || "")) f.push(`sgg_cd=eq.${p.sgg}`);
-    const grp = p.grp || "main";
-    if (grp !== "all") {
-      const list = usageList([...new Set((await facets()).map((x) => x.usage))], grp);
-      if (!list.length) return res.status(200).json({ items: [], total: 0, page: 1 });
-      f.push(`usage=in.(${list.map(q).join(",")})`);
-    }
+    const cats = CATS[p.grp] || CATS.main;
+    f.push(`category=in.(${cats.join(",")})`);
     if (p.court) f.push(`court_name=eq.${encodeURIComponent(p.court)}`);
     if (Number(p.maxPrice) > 0) f.push(`min_price=lte.${Math.round(Number(p.maxPrice) * 1e8)}`);
     if (Number(p.minFail) > 0) f.push(`fail_count=gte.${Math.round(Number(p.minFail))}`);

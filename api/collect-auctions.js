@@ -78,6 +78,17 @@ const int = (v) => { const n = Number(String(v ?? "").replace(/[^\d.-]/g, "")); 
 const num = (v) => { const n = Number(String(v ?? "").replace(/[^\d.-]/g, "")); return Number.isFinite(n) && String(v ?? "").trim() !== "" ? n : null; };
 const ymd = (v) => { const s = String(v ?? "").replace(/\D/g, "").slice(0, 8); return s.length === 8 ? `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6)}` : null; };
 
+// supabase/auction_category.sql 의 auction_category()와 같은 규칙
+function category(usage, buildings, name, address) {
+  const u = usage || "", b = [buildings, name].filter(Boolean).join(" "), all = [buildings, name, address].filter(Boolean).join(" ");
+  if (/아파트|다세대|연립|단독|다가구|빌라|주택/.test(u)) return "res";
+  if (u === "오피스텔" || /오피스텔/.test(all)) return "officetel";
+  if (/공장|지식산업|아파트형/.test(b)) return "factory";
+  if (/사무|업무시설/.test(b)) return "office";
+  if (/상가|근린|점포/.test(u) || /근린|상가|점포|판매|소매|음식/.test(b)) return "shop";
+  return "etc";
+}
+
 function toItem(r, today) {
   const itemNo = r.maemulSer ?? r.mokmulSer ?? "1";
   const parts = [r.hjguSido, r.hjguSigu, r.hjguDong, r.hjguRd, r.daepyoLotno].map(strip).filter(Boolean);
@@ -93,6 +104,7 @@ function toItem(r, today) {
     sale_date: ymd(r.maeGiil), sale_place: strip(r.maePlace),
     buildings: strip(r.buldList), areas: strip(r.areaList), min_area: num(r.minArea), max_area: num(r.maxArea),
     remarks: strip(r.mulBigo), status_cd: strip(r.mulStatcd), progress_cd: strip(r.jinstatCd),
+    category: category(strip(r.dspslUsgNm), strip(r.buldList), strip(r.buldNm), strip(r.printSt) || strip(r.convAddr)),
     lot_count: 1, raw: r, last_seen: today, active: true, updated_at: new Date().toISOString(),
   };
 }

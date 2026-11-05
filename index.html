@@ -437,12 +437,12 @@ function fillSgg() {
   const sido = $("#fSido").value, f = AUC_FACETS?.facets || [];
   const m = new Map();
   const gset = new Set(AUC_FACETS?.groups?.[AUC_GRP] || []);
-  f.filter((x) => (!sido || x.sido_cd === sido) && gset.has(x.usage)).forEach((x) => { if (x.sgg_cd) m.set(x.sgg_cd, { n: x.sigungu, c: (m.get(x.sgg_cd)?.c || 0) + x.cnt }); });
+  f.filter((x) => (!sido || x.sido_cd === sido) && gset.has(x.category)).forEach((x) => { if (x.sgg_cd) m.set(x.sgg_cd, { n: x.sigungu, c: (m.get(x.sgg_cd)?.c || 0) + x.cnt }); });
   const cur = $("#fSgg").value;
   $("#fSgg").innerHTML = `<option value="">시군구 전체</option>` + [...m].sort((a, b) => String(a[1].n).localeCompare(String(b[1].n), "ko")).map(([k, v]) => `<option value="${k}">${esc(v.n)} (${v.c})</option>`).join("");
   if ([...m.keys()].includes(cur)) $("#fSgg").value = cur;
   const gl = new Set(AUC_FACETS?.groups?.[AUC_GRP] || []);
-  const courts = new Map(); f.filter((x) => (!sido || x.sido_cd === sido) && gl.has(x.usage) && x.court_name).forEach((x) => courts.set(x.court_name, (courts.get(x.court_name) || 0) + x.cnt));
+  const courts = new Map(); f.filter((x) => (!sido || x.sido_cd === sido) && gl.has(x.category) && x.court_name).forEach((x) => courts.set(x.court_name, (courts.get(x.court_name) || 0) + x.cnt));
   const cc = $("#fCourt").value;
   $("#fCourt").innerHTML = `<option value="">법원 전체</option>` + [...courts].sort((a, b) => a[0].localeCompare(b[0], "ko")).map(([k, v]) => `<option value="${esc(k)}">${esc(k)} (${v})</option>`).join("");
   if (courts.has(cc)) $("#fCourt").value = cc;
@@ -461,7 +461,7 @@ async function loadAuc(page) {
     const pages = Math.max(1, Math.ceil((x.total || 0) / 30));
     $("#aucList").innerHTML = `<div class="muted" style="margin-top:8px">${(x.total ?? 0).toLocaleString()}건 · ${page}/${pages}쪽</div><div class="auc">` +
       (x.items.map((it) => `<div class="it" data-id="${esc(it.id)}">
-        <div><b>${esc(it.print_case_no)}${it.item_no > 1 ? ` (${it.item_no})` : ""}</b> <span class="pill ${it.fail_count >= 2 ? "mid" : "ok"}">${esc(it.usage || "용도 미상")}</span>
+        <div><b>${esc(it.print_case_no)}${it.item_no > 1 ? ` (${it.item_no})` : ""}</b> <span class="pill ${it.fail_count >= 2 ? "mid" : "ok"}" title="법원 용도: ${esc(it.usage || "")}">${({ shop: "상가", officetel: "오피스텔", office: "사무실·업무", factory: "공장·지산", etc: "기타" })[it.category] || esc(it.usage || "용도 미상")}</span>
           <div>${esc(it.lot_address || it.address || "")}${it.building_name ? " · " + esc(it.building_name) : ""}</div>
           <div class="muted">${esc(it.court_name || "")} ${esc(it.dept_name || "")} · 매각기일 ${esc(it.sale_date || "-")} ${dday(it.sale_date)}${it.areas ? " · " + esc(String(it.areas).slice(0, 40)) : ""}</div></div>
         <div class="pr"><div class="muted">감정가 ${wonW(it.appraised)}</div><div class="big">${wonW(it.min_price)}</div>
