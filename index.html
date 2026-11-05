@@ -62,6 +62,8 @@ select,.tools input{font:inherit;font-size:14px;padding:7px 10px;border:1px soli
 .auc .pr{text-align:right;font-variant-numeric:tabular-nums}
 .auc .pr .big{font-size:17px;font-weight:700}
 .stage{border:2px solid var(--accent)}
+.danger{background:var(--bad-soft);color:var(--bad);border-radius:10px;padding:12px 14px;margin-top:10px;font-size:14px}
+.danger ul{margin:6px 0 0;padding-left:18px}
 .warn{background:var(--warn-soft);color:var(--warn);border-radius:10px;padding:10px 12px;margin-top:10px;font-size:13px}
 @media (max-width:560px){.auc .it{grid-template-columns:1fr}.auc .pr{text-align:left}}
 footer{margin-top:40px;font-size:12px;color:var(--sub)}
@@ -174,7 +176,9 @@ async function run(addr) {
     DATA = d; render(d);
     history.replaceState(null, "", AUC ? "?auc=" + encodeURIComponent(AUC.id) : "?q=" + encodeURIComponent(addr));
   } catch (e) {
-    $("#out").innerHTML = `<div class="err">${esc(e.message)}</div>`;
+    // 건물 조회가 실패해도 경매 물건 정보(1단계)는 보여 줌
+    $("#out").innerHTML = (AUC ? `<div id="aucStage"></div>` : "") + `<div class="err">${esc(e.message)}${/초당|요청제한/.test(e.message) ? "<br>공공데이터포털이 잠시 바빠요. 10초쯤 뒤 다시 [분석]을 눌러 주세요." : ""}</div>`;
+    if (AUC) renderAuc(null);
   } finally { go.disabled = false; go.textContent = "분석"; }
 }
 
@@ -419,6 +423,14 @@ function storesCard(x, radius) {
 let AUC = null, AUC_PAGE = 1, AUC_FACETS = null, AUC_GRP = "main";
 const wonW = (w) => { if (w == null) return "-"; const e = Math.floor(w / 1e8), m = Math.round((w % 1e8) / 1e4); return e ? `${e}억${m ? " " + m.toLocaleString() + "만" : ""}원` : `${m.toLocaleString()}만원`; };
 const dday = (d) => { if (!d) return ""; const t = new Date(new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10)); const n = Math.round((new Date(d) - t) / 864e5); return n === 0 ? "D-day" : n > 0 ? `D-${n}` : "지남"; };
+function riskInfo(a) {
+  const rate = a.appraised ? a.min_price / a.appraised : 1;
+  const why = [];
+  if ((a.fail_count ?? 0) >= 5) why.push(`유찰이 ${a.fail_count}회예요. 여러 번 아무도 입찰하지 않았다는 뜻이에요.`);
+  if (rate < 0.3) why.push(`최저가가 감정가의 ${Math.round(rate * 100)}%까지 내려왔어요.`);
+  if (a.remarks && RISKY.test(a.remarks)) why.push("물건 비고에 권리관계 주의 문구가 있어요.");
+  return { high: why.length > 0, why };
+}
 const RISKY = /유치권|법정지상권|지분|대지권\s*미등기|대지권\s*없|위반건축|선순위|대항력|인수|임차인|재매각|토지별도등기|분묘|농지취득|공유자/;
 
 function setMode(m) {
@@ -465,7 +477,7 @@ async function loadAuc(page) {
           <div>${esc(it.lot_address || it.address || "")}${it.building_name ? " · " + esc(it.building_name) : ""}</div>
           <div class="muted">${esc(it.court_name || "")} ${esc(it.dept_name || "")} · 매각기일 ${esc(it.sale_date || "-")} ${dday(it.sale_date)}${it.areas ? " · " + esc(String(it.areas).slice(0, 40)) : ""}</div></div>
         <div class="pr"><div class="muted">감정가 ${wonW(it.appraised)}</div><div class="big">${wonW(it.min_price)}</div>
-          <div class="muted">${it.appraised ? Math.round(it.min_price / it.appraised * 100) + "%" : ""} · 유찰 ${it.fail_count ?? 0}회</div></div></div>`).join("") || `<div class="card muted">조건에 맞는 물건이 없어요.</div>`) + `</div>` +
+          <div class="muted">${it.appraised ? Math.round(it.min_price / it.appraised * 100) + "%" : ""} · 유찰 ${it.fail_count ?? 0}회</div>${riskInfo(it).high ? `<span class="pill no">⚠ 권리관계 확인 필수</span>` : ""}</div></div>`).join("") || `<div class="card muted">조건에 맞는 물건이 없어요.</div>`) + `</div>` +
       `<div class="tools" style="justify-content:center;margin-top:12px">${page > 1 ? `<button type="button" data-p="${page - 1}" style="padding:8px 14px">이전</button>` : ""}${page < pages ? `<button type="button" data-p="${page + 1}" style="padding:8px 14px">다음</button>` : ""}</div>`;
     $("#aucList").querySelectorAll("[data-p]").forEach((b) => b.onclick = () => loadAuc(+b.dataset.p));
     $("#aucList").querySelectorAll(".it").forEach((el) => el.onclick = () => openAuc(x.items.find((i) => i.id === el.dataset.id)));
@@ -521,6 +533,9 @@ function renderAuc(unit) {
       <div class="kv"><b>최저가로 낙찰 시 취득세 등(4.6%)</b><span>${wonW(tax)}</span><b>취득세 4% + 지방교육세 0.4% + 농특세 0.2%</b></div>
     </div>
     <p style="margin:10px 0 0"><b>용도</b> ${esc(a.usage || "-")} · <b>건물</b> ${esc(a.buildings || "-")} · <b>면적</b> ${esc(a.areas || "-")}</p>
+    ${(() => { const ri = riskInfo(a); return ri.high ? `<div class="danger"><b>⚠ 싸 보이는 데는 이유가 있을 수 있어요</b><ul>${ri.why.map((w) => `<li>${esc(w)}</li>`).join("")}</ul>
+      이런 물건은 <b>선순위 임차인 보증금 인수, 유치권, 대지권 미등기, 지분 경매, 위반건축물, 밀린 관리비</b> 같은 문제가 있는 경우가 많아요. 낙찰가 외에 수천만~수억 원을 더 떠안을 수 있어요.
+      입찰 전 <b>매각물건명세서의 '인수되는 권리'와 '임차인 현황'</b>을 꼭 보고, 처음이라면 법무사·변호사 등 전문가에게 권리분석을 받으세요.</div>` : ""; })()}
     ${a.remarks ? `<div class="${risky ? "warn" : "note"}"><b>물건 비고</b>: ${esc(a.remarks)}${risky ? "<br>⚠️ 권리관계에 주의할 문구가 있어요. 매각물건명세서로 꼭 확인하세요." : ""}</div>` : ""}
     ${cmp}
     <div class="note">경매는 낙찰가 외에 <b>인수할 권리(선순위 임차인 보증금, 유치권 등)·명도 비용·밀린 관리비</b>가 더해질 수 있어요. 입찰 전 대법원 법원경매정보에서 <b>매각물건명세서·현황조사서·감정평가서</b>를 꼭 확인하세요. 이 화면은 공개 정보를 정리한 참고자료이며 권리분석·감정평가가 아닙니다. <a href="https://www.courtauction.go.kr" target="_blank" rel="noopener">법원경매정보 바로가기</a></div></div>`;

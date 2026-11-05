@@ -197,12 +197,26 @@ async function sha1(s) {
   const b = await crypto.subtle.digest("SHA-1", new TextEncoder().encode(s));
   return [...new Uint8Array(b)].map((x) => x.toString(16).padStart(2, "0")).join("");
 }
+let ACTIVE = 0, LAST_START = 0;
+const WAITERS = [];
+async function slot() {
+  while (ACTIVE >= 2) await new Promise((r) => WAITERS.push(r));
+  ACTIVE++;
+  const wait = LAST_START + 250 - Date.now();
+  LAST_START = Math.max(Date.now(), LAST_START + 250);
+  if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+}
+function release() {
+  ACTIVE--;
+  WAITERS.shift()?.();
+}
 async function callApi(op, params) {
   const u = new URL(`${BASE}/${op}`);
   u.searchParams.set("serviceKey", KEY);
   for (const [k, v] of Object.entries(params)) u.searchParams.set(k, v);
   let last;
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < 5; i++) {
+    await slot();
     try {
       const r = await fetch(u, { signal: AbortSignal.timeout(2e4) });
       if (r.status === 401 || r.status === 403) throw new AuthError(`인증 실패(${r.status}) — 건축HUB 활용신청 승인과 Decoding 키를 확인하세요`);
@@ -210,7 +224,10 @@ async function callApi(op, params) {
     } catch (e) {
       if (e instanceof AuthError) throw e;
       last = e;
-      await new Promise((s) => setTimeout(s, 1500));
+      const tps = /초당|요청제한|PER_SECOND/.test(String(e?.message));
+      await new Promise((s) => setTimeout(s, tps ? 1e3 * (i + 1) : 1500));
+    } finally {
+      release();
     }
   }
   throw new Error("공공데이터포털 접속 실패: " + String(last));
@@ -219,9 +236,9 @@ async function fetchAll(op, p, cap) {
   const first = await callApi(op, { ...p, pageNo: "1", numOfRows: "100" });
   const out = [...first.items];
   const pages = Math.min(Math.ceil(first.total / 100), Math.ceil(cap / 100));
-  for (let start = 2; start <= pages; start += 5) {
+  for (let start = 2; start <= pages; start += 2) {
     const batch = [];
-    for (let pg = start; pg < start + 5 && pg <= pages; pg++) batch.push(callApi(op, { ...p, pageNo: String(pg), numOfRows: "100" }));
+    for (let pg = start; pg < start + 2 && pg <= pages; pg++) batch.push(callApi(op, { ...p, pageNo: String(pg), numOfRows: "100" }));
     for (const r of await Promise.all(batch)) out.push(...r.items);
   }
   return { items: out, total: first.total };
