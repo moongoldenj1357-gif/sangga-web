@@ -676,7 +676,8 @@ function docBox() {
     <p class="muted" style="margin:6px 0 0;font-size:13px">궁금한 점은 오른쪽 아래 AI 상담에 물어보세요. 이 정리 내용을 보고 답해요.</p>`;
   return `<h2 style="margin-top:18px;font-size:16px">권리관계 서류 확인 <span class="muted">입찰 전 꼭 보세요</span></h2>
   <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
-    <button type="button" onclick="copyCase()">사건번호 복사하고 법원경매 열기</button>
+    <button type="button" onclick="autoCurst()" ${st?.busy ? "disabled" : ""}>🔎 현황조사서 AI 정리</button>
+    <button type="button" onclick="copyCase()" style="background:#fff;color:var(--accent);border:1px solid var(--accent)">사건번호 복사하고 법원경매 열기</button>
     <label style="display:inline-flex;align-items:center;gap:6px;border:1px solid var(--accent);color:var(--accent);border-radius:10px;padding:10px 14px;cursor:pointer;font-weight:600;font-size:15px">
       📄 서류 올려서 AI로 읽기<input type="file" accept="application/pdf,image/*" multiple style="display:none" onchange="readDocs(this.files)" ${st?.busy ? "disabled" : ""}></label>
   </div>
@@ -688,9 +689,22 @@ function docBox() {
       <li><b>현황조사서</b>: 실제로 누가 쓰고 있는지(점유자), 영업 중인지, 임대차 관계 진술</li>
       <li><b>감정평가서</b>: 감정가 근거, 사진(내부 상태·간판·주변), 토지·건물 비중, 위반건축물 표시</li>
       <li><b>등기사항전부증명서</b>(인터넷등기소, 유료): 권리 순서를 날짜로 직접 확인</li>
+      <li><b>매각물건명세서는 매각기일 1주일 전부터</b> 법원 사이트에 올라와요. 문서보기 창 위쪽 <b>💾(저장)</b>으로 PDF를 받아 "서류 올려서 AI로 읽기"에 올리면 정리해 드려요.</li>
     </ol>
     <p style="margin:8px 0 0">서류 화면에서 <b>인쇄 → PDF로 저장</b>하거나 <b>화면 캡처</b>한 뒤 "서류 올려서 AI로 읽기"에 올리면 쉬운 말로 정리해 드려요. 올린 파일은 읽기만 하고 저장하지 않아요. 한 번에 6장, 합계 3MB까지. 휴대폰은 화면 캡처가 사진첩에 바로 저장되니 그대로 골라 올리면 돼요. 종이 서류는 카메라로 찍어도 돼요.</p>
   </details>${out}`;
+}
+async function autoCurst() {
+  const a = AUC; if (!a) return;
+  const redraw = () => { const b = $("#aucDoc"); if (b && AUC && AUC.id === a.id) b.innerHTML = docBox(); };
+  DOC_STATE = { id: a.id, busy: true, names: "법원 현황조사서" }; redraw();
+  try {
+    const r = await fetch(`/api/auctiondoc?id=${encodeURIComponent(a.id)}`);
+    let x; try { x = await r.json(); } catch { throw new Error(`서버 오류(${r.status})`); }
+    if (!r.ok) throw new Error(x.오류 || "현황조사서를 가져오지 못했어요");
+    DOC_STATE = { id: a.id, text: x.정리, names: "법원 현황조사서" + (x.저장시각 ? ` (${x.저장시각.slice(0, 10)} 정리)` : "") };
+  } catch (e) { DOC_STATE = { id: a.id, err: e.message + " — 법원 사이트에서 서류를 받아 직접 올려도 돼요.", names: "현황조사서" }; }
+  redraw();
 }
 async function fileToPart(f) {
   if (f.type === "application/pdf") {
