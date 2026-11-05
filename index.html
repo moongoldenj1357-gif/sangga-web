@@ -196,7 +196,7 @@ async function run(addr, opt = {}) {
 
 function render(d) {
   const keepAuc = AUC;
-  SEL = null; ST_SUM = null; TR_SUM = null; RENT_POS = null; RENT_SUM = null; RENT_UNIT = null;
+  SEL = null; ST_SUM = null; TR_SUM = null; OFFI_SUM = null; RENT_POS = null; RENT_SUM = null; RENT_UNIT = null;
   if (typeof CHAT !== "undefined" && CHAT.length && CHAT[CHAT.length - 1].role !== "divider") {
     CHAT.push({ role: "divider", content: `새 주소: ${d.주소} — 여기부터는 이 주소 기준으로 답해요` });
     if ($("#chat").classList.contains("open")) chatDraw(false);
@@ -221,10 +221,12 @@ function render(d) {
     h += `<div id="judge"></div>`;
   }
   h += tradesCard(d);
+  h += `<div id="offi"></div>`;
   h += `<div id="rent"></div>`;
   if (d.법정동코드) h += `<div id="stores"></div>`;
   $("#out").innerHTML = h;
   if (d.법정동코드) loadStores(300); else renderRent(null);
+  loadOffi(d);
   bindUnits();
   bindFloors();
   if (keepAuc) { renderAuc(null); autoPickUnit(); }
@@ -330,7 +332,7 @@ const quant = (a, q) => { const b = a.filter((x) => x != null && isFinite(x)).so
 const stat = (rows) => { const v = rows.map((t) => Number(t.price_per_m2)).filter((x) => x > 0); return { n: v.length, med: quant(v, .5), q1: quant(v, .25), q3: quant(v, .75) }; };
 const isF1 = (f) => /^(지상)?\s*1\s*(층)?$/.test(String(f ?? "").trim());
 const isUnder = (f) => /^지|지하|^B|^-/.test(String(f ?? "").trim());
-let REF = null, TR_SUM = null, ST_SUM = null, SEL = null, RENT_POS = null, RENT_SUM = null, RENT_UNIT = null;
+let OFFI_SUM = null, REF = null, TR_SUM = null, ST_SUM = null, SEL = null, RENT_POS = null, RENT_SUM = null, RENT_UNIT = null;
 
 function tradesCard(d) {
   const clean = (r) => !String(r.share_type || "").includes("지분");
@@ -375,6 +377,61 @@ function tradesCard(d) {
   <div class="note">지분 거래와 해제(취소)된 거래는 뺐습니다. 지번은 신고 자료에서 일부 가려져 있을 수 있어요. 가격은 신고 금액의 통계 참고값이며 감정평가가 아닙니다.</div></div>`;
 }
 const thead = () => `<tr><th>계약일</th><th>지번</th><th>유형</th><th>건물용도</th><th>층</th><th class="num">면적</th><th class="num">금액</th><th class="num">㎡당</th></tr>`;
+
+// ── 오피스텔 매매·전월세 실거래 (국토교통부)
+const medOf = (a) => { a = a.filter((v) => v != null && isFinite(v)).sort((x, y) => x - y); if (!a.length) return null; const m = a.length >> 1; return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2; };
+function isOffiPage(d) {
+  if (AUC && AUC.category === "officetel") return true;
+  const txt = [...(d.건물 || []).map((t) => `${t.main_purpose || ""} ${t.etc_purpose || ""}`), ...(d.호실 || []).map((u) => `${u.purpose || ""} ${u.purpose_etc || ""}`)].join(" ");
+  return /오피스텔/.test(txt);
+}
+async function loadOffi(d) {
+  const box = $("#offi"); if (!box || !d.법정동코드 || !d.동) return;
+  const want = isOffiPage(d);
+  if (want) box.innerHTML = `<div class="card muted">오피스텔 실거래를 찾는 중입니다…</div>`;
+  try {
+    const r = await fetch(`/api/officetel?bjd=${encodeURIComponent(d.법정동코드)}&dong=${encodeURIComponent(d.동)}&jibun=${encodeURIComponent(d.지번 || "")}`);
+    const x = await r.json();
+    if (!r.ok) throw new Error(x.오류 || "오피스텔 실거래를 불러오지 못했어요");
+    if (DATA !== d) return;
+    const has = (x.같은지번매매 || []).length || (x.같은지번임대 || []).length;
+    if (!want && !has) { box.innerHTML = ""; return; }
+    box.innerHTML = offiCard(d, x);
+  } catch (e) {
+    box.innerHTML = want ? `<div class="card"><h2>오피스텔 실거래</h2><div class="err">${esc(e.message)}</div></div>` : "";
+  }
+}
+function offiCard(d, x) {
+  const st = x.같은지번매매 || [], sr = x.같은지번임대 || [];
+  const dm = x.동매매 || {}, dw = x.동월세 || {}, dj = x.동전세 || {};
+  const wol = sr.filter((r) => r.monthly_10k > 0), jeon = sr.filter((r) => !r.monthly_10k);
+  const sP = medOf(st.map((t) => t.ppm2)), sMon = medOf(wol.map((r) => r.monthly_10k)), sDep = medOf(wol.map((r) => r.deposit_10k));
+  const sMonM2 = medOf(wol.map((r) => r.area ? r.monthly_10k / r.area : null)), sJ = medOf(jeon.map((r) => r.deposit_10k));
+  const dn = esc(d.동), nm = x.이름 ? esc(x.이름) : "같은 지번";
+  const pp = (v) => v == null ? "-" : `${won(v)}원/㎡ · ${won(v * 3.3058)}원/평`;
+  const yr = sP && sMon ? (sMon * 12 / (medOf(st.map((t) => t.deal_amount_10k)) - (sDep || 0)) * 100) : null;
+  OFFI_SUM = `오피스텔 실거래(전용면적 기준, 최근 1년 ${d.동}): 매매 ㎡당 중간값 ${dm.med ? won(dm.med) + "원" : "없음"}(${dm.n || 0}건), 월세 중간 보증금 ${dw.dep ? won(dw.dep) + "원" : "-"}/월 ${dw.mon ? won(dw.mon) + "원" : "-"}(${dw.n || 0}건, ㎡당 월세 ${dw.mon_m2 ?? "-"}만원), 전세 중간 ${dj.dep ? won(dj.dep) + "원" : "-"}(${dj.n || 0}건)`
+    + (st.length ? `. ${nm} 매매: ` + st.slice(0, 8).map((t) => `${t.deal_date} ${t.floor}층 ${t.area}㎡ ${won(t.deal_amount_10k)}원`).join("; ") : "")
+    + (sr.length ? `. ${nm} 임대: ` + sr.slice(0, 10).map((r) => `${r.deal_date} ${r.floor}층 ${r.area}㎡ 보증금 ${won(r.deposit_10k)}${r.monthly_10k ? "/월 " + won(r.monthly_10k) : "(전세)"}`).join("; ") : "");
+  const tRow = (t) => `<tr><td>${t.deal_date}</td><td>${esc(t.floor || "")}</td><td class="num">${t.area ?? ""}㎡</td><td class="num">${won(t.deal_amount_10k)}</td><td class="num">${t.ppm2 ? won(t.ppm2) : "-"}</td></tr>`;
+  const rRow = (r) => `<tr><td>${r.deal_date}</td><td>${esc(r.floor || "")}</td><td class="num">${r.area ?? ""}㎡</td><td class="num">${won(r.deposit_10k)}</td><td class="num">${r.monthly_10k ? won(r.monthly_10k) : "전세"}</td></tr>`;
+  return `<div class="card"><h2>오피스텔 실거래 <span class="muted">${nm} · 국토교통부 신고자료 · 전용면적 기준</span></h2>
+  ${st.length || sr.length ? `<div class="grid">
+    <div class="kv"><b>이 건물 매매 ㎡당 중간값</b><span class="big">${sP ? won(sP) + "원" : "-"}</span><b>${st.length}건 · ${sP ? won(sP * 3.3058) + "원/평" : ""}</b></div>
+    <div class="kv"><b>이 건물 월세 중간값</b><span class="big">${sMon ? `${won(sDep)} / ${won(sMon)}` : "-"}</span><b>${wol.length}건 · 보증금/월세${sMonM2 ? ` · ㎡당 월 ${sMonM2.toFixed(2)}만` : ""}</b></div>
+    <div class="kv"><b>이 건물 전세 중간값</b><span>${sJ ? won(sJ) + "원" : "-"}</span><b>${jeon.length}건</b></div>
+    ${yr && yr > 0 && yr < 30 ? `<div class="kv"><b>단순 임대수익률(참고)</b><span>${yr.toFixed(1)}%</span><b>월세×12 ÷ (매매가−보증금), 세금·관리비 제외</b></div>` : ""}
+  </div>` : `<p class="muted">이 지번으로 신고된 오피스텔 거래는 아직 없어요. 아래 ${dn} 전체 값을 참고하세요.</p>`}
+  <h2 style="margin-top:18px;font-size:15px">비교: ${dn} 오피스텔 전체 (최근 1년)</h2>
+  <div class="grid">
+    <div class="kv"><b>매매 ㎡당 중간값</b><span>${pp(dm.med)}</span><b>${dm.n || 0}건${dm.q1 ? ` · 가운데 절반 ${won(dm.q1)}~${won(dm.q3)}` : ""}</b></div>
+    <div class="kv"><b>월세 중간값 (보증금/월세)</b><span>${dw.mon ? `${won(dw.dep)} / ${won(dw.mon)}` : "-"}</span><b>${dw.n || 0}건${dw.mon_m2 ? ` · ㎡당 월 ${dw.mon_m2}만` : ""}</b></div>
+    <div class="kv"><b>전세 중간값</b><span>${dj.dep ? won(dj.dep) + "원" : "-"}</span><b>${dj.n || 0}건${dj.dep_m2 ? ` · ㎡당 ${won(dj.dep_m2)}` : ""}</b></div>
+  </div>
+  ${st.length ? `<h2 style="margin-top:18px">이 건물 매매 ${st.length}건</h2><div class="scroll"><table><thead><tr><th>계약일</th><th>층</th><th class="num">전용</th><th class="num">금액</th><th class="num">㎡당</th></tr></thead><tbody>${st.slice(0, 15).map(tRow).join("")}</tbody></table></div>` : ""}
+  ${sr.length ? `<h2 style="margin-top:18px">이 건물 전월세 ${sr.length}건</h2><div class="scroll"><table><thead><tr><th>계약일</th><th>층</th><th class="num">전용</th><th class="num">보증금</th><th class="num">월세</th></tr></thead><tbody>${sr.slice(0, 20).map(rRow).join("")}</tbody></table></div>` : ""}
+  <div class="note">오피스텔 면적은 전용면적이라 상가 실거래(건물면적)와 ㎡당 값을 바로 비교하면 안 됩니다. 해제된 매매는 뺐고, 신고 금액의 통계 참고값이며 감정평가가 아닙니다.</div></div>`;
+}
 
 // ── 주변 점포 (소상공인시장진흥공단 상가정보)
 const CATS = [
@@ -705,6 +762,7 @@ function pageContext(q) {
     if (TR_SUM.same.length) L.push("같은 지번 거래: " + TR_SUM.same.map((t) => `${t.deal_date} ${t.floor}층 ${t.building_area}㎡ ${won(t.deal_amount_10k)}원`).join("; "));
   }
   if (AUC) L.unshift(`★ 경매 물건: ${AUC.print_case_no} (${AUC.court_name} ${AUC.dept_name || ""}) / 용도 ${AUC.usage || "-"} / 감정가 ${won(AUC.appraised / 1e4)}원, 최저매각가격 ${won(AUC.min_price / 1e4)}원(감정가의 ${AUC.appraised ? Math.round(AUC.min_price / AUC.appraised * 100) : "?"}%), 유찰 ${AUC.fail_count}회, 매각기일 ${AUC.sale_date || "-"} / 건물 ${AUC.buildings || "-"} / 면적 ${AUC.areas || "-"} / 비고 ${AUC.remarks || "없음"}. 권리분석(말소기준권리, 임차인 대항력, 인수 권리)은 이 자료에 없음 — 매각물건명세서·현황조사서 확인 필요.`);
+  if (OFFI_SUM) L.push(OFFI_SUM);
   if (RENT_SUM) L.push(RENT_SUM);
   if (ST_SUM) {
     L.push(`주변 점포(소상공인 상가정보, 반경 ${ST_SUM.radius}m) 총 ${ST_SUM.total}곳: ${ST_SUM.cats.join(", ")}`);
