@@ -27,6 +27,7 @@ async function sb(method, path, body, prefer = "return=minimal") {
 }
 
 class Blocked extends Error {}
+class Rejected extends Error {}   // 400: 요청 형식·크기를 거절 (차단과 다름)
 
 function court() {
   const jar = new Map();
@@ -40,10 +41,16 @@ function court() {
       await gap();
       const r = await fetch(BASE + PAGE, { headers: H(), redirect: "manual", signal: AbortSignal.timeout(12000) });
       eat(r);
-    },
-    async search(sido, pageNo) {
+      // 시험 때 성공한 순서와 똑같이: 첫 화면 → 법원 목록 → 검색
       await gap();
-      const body = { dma_pageInfo: { pageNo, pageSize: PAGE_SIZE, bfPageNo: "", startRowNo: "", totalCnt: "", totalYn: "Y", groupTotalCount: "" },
+      const c = await fetch(BASE + "/pgj/pgjComm/selectCortOfcCdLst.on", { method: "POST", headers: H({ "Content-Type": "application/json; charset=UTF-8" }), body: "{}", redirect: "manual", signal: AbortSignal.timeout(12000) });
+      eat(c);
+      const cj = await c.json().catch(() => null);
+      if (cj?.data?.ipcheck === false) throw new Blocked("차단 신호(ipcheck=false)");
+    },
+    async search(sido, pageNo, size) {
+      await gap();
+      const body = { dma_pageInfo: { pageNo, pageSize: size, bfPageNo: "", startRowNo: "", totalCnt: "", totalYn: "Y", groupTotalCount: "" },
         dma_srchGdsDtlSrchInfo: { rletDspslSpcCondCd: "", bidDvsCd: "", mvprpRletDvsCd: "00031R", cortAuctnSrchCondCd: "0004601", rprsAdongSdCd: sido, rprsAdongSggCd: "", rprsAdongEmdCd: "",
           rdnmSdCd: "", rdnmSggCd: "", rdnmNo: "", mvprpDspslPlcAdongSdCd: "", mvprpDspslPlcAdongSggCd: "", mvprpDspslPlcAdongEmdCd: "", rdDspslPlcAdongSdCd: "", rdDspslPlcAdongSggCd: "", rdDspslPlcAdongEmdCd: "",
           cortOfcCd: "", jdbnCd: "", execrOfcDvsCd: "", lclDspslGdsLstUsgCd: "20000", mclDspslGdsLstUsgCd: "", sclDspslGdsLstUsgCd: "", cortAuctnMbrsId: "",
@@ -55,7 +62,8 @@ function court() {
         headers: H({ "Content-Type": "application/json; charset=UTF-8", submissionid: "mf_wfm_mainFrame_sbm_selectGdsDtlSrch", "sc-userid": "SYSTEM" }),
         body: JSON.stringify(body), redirect: "manual", signal: AbortSignal.timeout(20000) });
       eat(r);
-      if (r.status === 400 || r.status === 403 || r.status === 429) throw new Blocked(`법원 사이트가 요청을 거절함(${r.status})`);
+      if (r.status === 403 || r.status === 429) throw new Blocked(`법원 사이트가 접속을 막음(${r.status})`);
+      if (r.status === 400) throw new Rejected("법원 사이트가 이 요청을 거절함(400)");
       if (!r.ok) throw new Error(`법원 사이트 응답 오류 ${r.status}`);
       const j = await r.json();
       if (j?.data?.ipcheck === false) throw new Blocked("차단 신호(ipcheck=false)");
@@ -111,11 +119,21 @@ export default async function handler(req, res) {
     let { sido_idx: si, page, calls, saved } = run;
     const totals = run.totals || {};
     let done = false, blocked = false, message = "";
+    const SIZES = [100, 50, 20, 10];
+    let size = SIZES.includes(totals._size) ? totals._size : PAGE_SIZE;
     while (Date.now() - started < TIME_BUDGET_MS && calls < DAILY_CALL_CAP) {
       const sido = SIDOS[si];
       let got;
-      try { got = await c.search(sido, page); calls++; }
-      catch (e) { calls++; if (e instanceof Blocked) { blocked = true; message = e.message; } else message = e.message; break; }
+      try { got = await c.search(sido, page, size); calls++; }
+      catch (e) {
+        calls++;
+        if (e instanceof Blocked) { blocked = true; message = e.message; break; }
+        if (e instanceof Rejected && size > 10) {   // 한 번에 받는 양을 줄여서 그 시도를 처음부터 다시
+          size = SIZES[SIZES.indexOf(size) + 1]; totals._size = size; page = 1; message = `400 거절 → 한 번에 ${size}건씩으로 줄임`;
+          continue;
+        }
+        message = e.message; break;
+      }
       totals[sido] = got.total;
       const merged = new Map();
       for (const r of got.rows) {
@@ -124,7 +142,7 @@ export default async function handler(req, res) {
         if (prev) prev.lot_count++; else merged.set(it.id, it);
       }
       if (merged.size) { await sb("POST", "auction_items?on_conflict=id", [...merged.values()], "resolution=merge-duplicates,return=minimal"); saved += merged.size; }
-      if (!got.rows.length || page * PAGE_SIZE >= got.total) {
+      if (!got.rows.length || page * size >= got.total) {
         si++; page = 1;
         if (si >= SIDOS.length) done = true;
       } else page++;
