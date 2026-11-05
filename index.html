@@ -721,6 +721,8 @@ function chatDraw(pending) {
   let h = CHAT.length ? "" : `<div class="mg a">안녕하세요. 화면에 띄운 건물·호실·실거래·주변 점포 자료를 보고 답해 드려요. 용어나 절차도 물어보세요.</div>`;
   const extra = (m) => (m.items?.length ? `<div class="cards">${m.items.map((it) => `<div data-auc="${esc(it.id)}"><b>${esc(it.print_case_no)}</b> ${esc(it.sigungu || "")} ${esc(it.dong || "")}${it.building_name ? " · " + esc(it.building_name) : ""}
       <small>${it.floor != null ? (it.floor < 0 ? "지하" + -it.floor : it.floor) + "층 · " : ""}${it.pyeong ? it.pyeong + "평(" + Math.round(it.area_m2) + "㎡) · " : ""}최저가 ${wonW(it.min_price)} · 유찰 ${it.fail_count ?? 0}회 · ${esc(it.sale_date || "")}${it.risky ? " · ⚠ 권리확인" : ""}</small></div>`).join("")}${m.total > m.items.length ? `<small class="muted">조건에 맞는 ${m.total}건 중 ${m.items.length}건</small>` : ""}</div>` : "") +
+    (m.programs?.length ? `<div class="cards">${m.programs.map((g) => `<div data-url="${esc(g.url || "https://www.bizinfo.go.kr")}"><b>${esc(g.title)}</b>
+      <small>${esc(g.org || "")}${g.end ? " · 마감 " + esc(g.end) : ""}${g.target ? " · 대상: " + esc(String(g.target).slice(0, 40)) : ""}</small><small style="color:var(--accent)">기업마당 공고 보기 ↗</small></div>`).join("")}</div>` : "") +
     (m.links?.length ? `<div class="links">${m.links.map((l) => `<a href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.기관)} ↗</a>`).join("")}</div>` : "");
   CHAT.forEach((m, i) => h += m.role === "divider" ? `<div class="muted" style="text-align:center;font-size:12px;margin:4px 0">── ${esc(m.content)} ──</div>` : m.role === "user" ? `<div class="mg u">${esc(m.content)}</div>` : `<div class="mg a">${md(m.content)}${extra(m)}<button type="button" class="cp" data-c="${i}">복사</button></div>`);
   if (pending) h += `<div class="mg a muted">답변을 쓰는 중…</div>`;
@@ -735,7 +737,7 @@ async function chatSend(q) {
     const r = await fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ messages: CHAT.slice(CHAT.map((m) => m.role).lastIndexOf("divider") + 1).filter((m) => !String(m.content).startsWith("⚠️")).slice(-10).map((m) => ({ role: m.role, content: m.content + (m.items?.length ? `\n[찾은 물건: ${m.items.map((i) => i.print_case_no).join(", ")}]` : "") })), context: pageContext(q) }) });
     const x = await r.json();
     if (!r.ok) throw new Error(x.오류 || "AI 상담 오류");
-    CHAT.push({ role: "assistant", content: x.답변 + (x.남은횟수 <= 3 ? `\n\n(오늘 남은 질문 ${x.남은횟수}번)` : ""), items: x.물건 || null, total: x.찾은건수 || 0, links: x.지원기관 || null });
+    CHAT.push({ role: "assistant", content: x.답변 + (x.남은횟수 <= 3 ? `\n\n(오늘 남은 질문 ${x.남은횟수}번)` : ""), items: x.물건 || null, total: x.찾은건수 || 0, links: x.지원기관 || null, programs: x.공고 || null });
   } catch (e) {
     CHAT.pop(); CHAT.push({ role: "user", content: q }); CHAT.push({ role: "assistant", content: "⚠️ " + e.message });
   } finally { $("#cs").disabled = false; chatDraw(false); }
@@ -746,6 +748,8 @@ $("#cx").onclick = () => { $("#chat").classList.remove("open"); $("#chatBtn").st
 $("#cf").onsubmit = (e) => { e.preventDefault(); chatSend($("#ci").value); };
 $("#ci").onkeydown = (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); chatSend($("#ci").value); } };
 $("#cm").onclick = (e) => {
+  const link = e.target.closest("[data-url]");
+  if (link) { window.open(link.dataset.url, "_blank", "noopener"); return; }
   const card = e.target.closest("[data-auc]");
   if (card) {
     const m = CHAT.find((x) => x.items?.some((i) => i.id === card.dataset.auc));

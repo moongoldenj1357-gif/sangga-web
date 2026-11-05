@@ -1,3 +1,4 @@
+import { findPrograms } from "../lib/support.js";
 // AI 상담 채팅 — 화면에 띄운 자료를 근거로 Claude(Haiku)가 답함
 import { createHash } from "node:crypto";
 
@@ -37,7 +38,7 @@ const SYSTEM_TOOLS = `
 - 사용자가 "○○동 20평 식당 자리 있어?", "1층 카페 할 만한 경매 상가"처럼 창업할 자리를 찾으면 search_auctions 도구로 지금 진행 중인 경매 물건을 찾으세요. 지역(동·구), 면적(평이면 ×3.3058로 ㎡ 환산, 범위는 ±15% 여유), 업종, 예산(원)을 넣으세요. 말하지 않은 조건은 비워 두세요.
 - 결과는 화면에 카드로 따로 보여지니, 답변에서는 몇 건이 나왔는지, 눈에 띄는 2~3건의 특징(층, 면적, 최저가, 유찰, 위험 표시), 고를 때 확인할 점만 짧게 정리하세요. 결과가 없으면 범위를 넓혀(옆 동, 구 전체, 면적 범위) 한 번 더 찾아보세요.
 - "적합 가능성"은 가능성일 뿐입니다. 경매 물건은 권리관계(임차인·유치권·대지권)를 반드시 확인해야 한다고 짧게 덧붙이세요.
-- 창업 자금·대출·보증·정부지원·교육·컨설팅을 물으면 startup_support 도구로 공식 기관 목록을 받아 안내하세요. 금리·한도·지원금액처럼 바뀌는 숫자는 말하지 말고 "공고에서 확인"하라고 하세요. 기관명과 주소(URL)는 도구 결과에 있는 것만 쓰세요.`;
+- 창업 자금·대출·보증·정부지원·교육·컨설팅을 물으면 먼저 find_support_programs 도구로 기업마당의 지금 접수 중인 공고를 찾으세요(지역, 업종·대상 키워드). 공고는 화면에 카드로 따로 보여지니, 답변에서는 눈에 띄는 2~3개만 공고명·주관기관·마감일로 짧게 소개하세요. 공고가 없거나 오류면 startup_support 도구로 공식 기관 목록을 안내하세요. 금리·한도·지원금액처럼 바뀌는 숫자는 말하지 말고 "공고에서 확인"하라고 하세요. 기관명과 주소(URL)는 도구 결과에 있는 것만 쓰세요.`;
 
 const TOOLS = [
   { name: "search_auctions",
@@ -50,6 +51,12 @@ const TOOLS = [
       min_area_m2: { type: "number" }, max_area_m2: { type: "number" },
       max_price_won: { type: "number", description: "최저매각가격 상한(원)" },
       first_floor_only: { type: "boolean", description: "1층만" } } } },
+  { name: "find_support_programs",
+    description: "기업마당(중소벤처기업부)의 최신 지원사업 공고 중 지금 접수 중인 것을 지역·키워드로 찾는다.",
+    input_schema: { type: "object", properties: {
+      region: { type: "string", description: "서울, 경기, 또는 시군구 이름" },
+      keywords: { type: "array", items: { type: "string" }, description: "예: 창업, 소상공인, 음식점, 외식, 자금, 보증, 교육" },
+      field: { type: "string", enum: ["", "01", "02", "03", "04", "05", "06", "07", "09"], description: "분야 코드(모르면 비움): 01 금융, 02 기술, 03 인력, 04 수출, 05 내수, 06 창업, 07 경영, 09 기타" } } } },
   { name: "startup_support",
     description: "소상공인 창업 자금·보증·정부지원·교육·컨설팅 공식 기관 목록을 돌려준다.",
     input_schema: { type: "object", properties: { sido: { type: "string", enum: ["서울", "경기", "모름"] }, topic: { type: "string", description: "자금, 보증, 교육, 상권, 전체 등" } } } },
@@ -165,7 +172,7 @@ export default async function handler(req, res) {
   const context = clip(body.context, 9000) || "(아직 조회한 주소가 없습니다)";
   try {
     const convo = [...msgs];
-    let found = null, support = null, d;
+    let found = null, support = null, programs = null, d;
     for (let step = 0; step < 4; step++) {
       const r = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
@@ -191,6 +198,7 @@ export default async function handler(req, res) {
         try {
           if (u.name === "search_auctions") { out = await searchAuctions(u.input || {}); found = out; }
           else if (u.name === "startup_support") { out = startupSupport(u.input || {}); support = out; }
+          else if (u.name === "find_support_programs") { out = await findPrograms(u.input || {}); programs = out; delete out._sampleFields; }
           else out = { 오류: "없는 도구" };
         } catch (e) { out = { 오류: String(e.message || e) }; }
         // AI에게는 핵심만 (원문 raw 없이)
@@ -202,7 +210,7 @@ export default async function handler(req, res) {
     const text = (d.content || []).filter((c) => c.type === "text").map((c) => c.text).join("\n").trim();
     const cut = d.stop_reason === "max_tokens" ? "\n\n(답변이 길어 여기서 끊겼어요. \"이어서\"라고 보내면 계속해요.)" : "";
     return res.status(200).json({ 답변: (text || "답변을 만들지 못했어요. 다시 물어봐 주세요.") + cut, 남은횟수: Math.max(PER_VISITOR - used.mine, 0),
-      ...(found ? { 물건: found.물건.map(({ raw, ...x }) => x), 찾은건수: found.찾은건수 } : {}), ...(support ? { 지원기관: support.기관 } : {}) });
+      ...(found ? { 물건: found.물건.map(({ raw, ...x }) => x), 찾은건수: found.찾은건수 } : {}), ...(support ? { 지원기관: support.기관 } : {}), ...(programs?.공고?.length ? { 공고: programs.공고 } : {}) });
   } catch (e) {
     return res.status(504).json({ 오류: "AI 응답이 늦어요. 잠시 후 다시 시도해 주세요." });
   }
