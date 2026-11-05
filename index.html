@@ -724,7 +724,7 @@ function chatDraw(pending) {
     (m.programs?.length ? `<div class="cards">${m.programs.map((g) => `<div data-url="${esc(g.url || "https://www.bizinfo.go.kr")}"><b>${esc(g.title)}</b>
       <small>${esc(g.org || "")}${g.end ? " · 마감 " + esc(g.end) : ""}${g.target ? " · 대상: " + esc(String(g.target).slice(0, 40)) : ""}</small><small style="color:var(--accent)">기업마당 공고 보기 ↗</small></div>`).join("")}</div>` : "") +
     (m.links?.length ? `<div class="links">${m.links.map((l) => `<a href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.기관)} ↗</a>`).join("")}</div>` : "");
-  CHAT.forEach((m, i) => h += m.role === "divider" ? `<div class="muted" style="text-align:center;font-size:12px;margin:4px 0">── ${esc(m.content)} ──</div>` : m.role === "user" ? `<div class="mg u">${esc(m.content)}</div>` : `<div class="mg a">${md(m.content)}${extra(m)}<button type="button" class="cp" data-c="${i}">복사</button></div>`);
+  CHAT.forEach((m, i) => h += m.role === "divider" ? `<div class="muted" style="text-align:center;font-size:12px;margin:4px 0">── ${esc(m.content)} ──</div>` : m.role === "user" ? `<div class="mg u">${esc(m.content)}</div>` : `<div class="mg a">${md(m.content)}${extra(m)}<span style="display:flex;gap:12px"><button type="button" class="cp" data-c="${i}">복사</button><button type="button" class="cp" data-s="${i}">공유</button></span></div>`);
   if (pending) h += `<div class="mg a muted">답변을 쓰는 중…</div>`;
   if (!pending) h += `<div class="chips">${chatSuggest().map((q) => `<button type="button" data-q="${esc(q)}">${esc(q)}</button>`).join("")}</div>`;
   cm.innerHTML = h; cm.scrollTop = cm.scrollHeight;
@@ -742,6 +742,40 @@ async function chatSend(q) {
     CHAT.pop(); CHAT.push({ role: "user", content: q }); CHAT.push({ role: "assistant", content: "⚠️ " + e.message });
   } finally { $("#cs").disabled = false; chatDraw(false); }
 }
+async function shareAnswer(i, btn) {
+  const m = CHAT[i]; if (!m) return;
+  let q = ""; for (let k = i - 1; k >= 0; k--) if (CHAT[k].role === "user") { q = CHAT[k].content; break; }
+  const old = btn.textContent; btn.textContent = "링크 만드는 중…";
+  try {
+    const r = await fetch("/api/share", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ q, a: m.content.replace(/\n\n\(오늘 남은 질문 \d+번\)$/, ""), place: DATA ? DATA.주소 : "", items: m.items || [], programs: m.programs || [], links: m.links || [] }) });
+    const x = await r.json(); if (!r.ok) throw new Error(x.오류 || "공유 실패");
+    const url = `${location.origin}/?share=${x.id}`;
+    if (navigator.share) { try { await navigator.share({ title: "상가 경매·창업 AI 상담", text: q ? `Q. ${q}` : "AI 상담 답변", url }); btn.textContent = "공유함"; } catch { btn.textContent = old; } }
+    else { await navigator.clipboard.writeText(url); btn.textContent = "링크 복사됨 — 카톡에 붙여 넣으세요"; }
+  } catch (e) { btn.textContent = "공유 실패"; }
+  setTimeout(() => (btn.textContent = old), 3000);
+}
+async function showShare(id) {
+  setMode("aucDetail");
+  $("#out").innerHTML = `<div class="card muted">공유된 답변을 불러오는 중…</div>`;
+  try {
+    const r = await fetch("/api/share?id=" + encodeURIComponent(id)); const x = await r.json();
+    if (!r.ok) throw new Error(x.오류 || "불러오기 실패");
+    const p = x.payload;
+    $("#out").innerHTML = `<div class="card stage"><h2>공유된 AI 상담 <span class="muted">${esc(String(x.created_at).slice(0, 10))}${p.place ? " · " + esc(p.place) : ""}</span></h2>
+      ${p.q ? `<p style="margin:0 0 10px"><b>Q.</b> ${esc(p.q)}</p>` : ""}<div>${md(p.a)}</div>
+      ${p.items?.length ? `<div class="auc">${p.items.map((it) => `<div class="it" data-sid="${esc(it.id)}"><div><b>${esc(it.print_case_no)}</b> ${esc(it.sigungu || "")} ${esc(it.dong || "")}${it.building_name ? " · " + esc(it.building_name) : ""}<div class="muted">${it.floor != null ? it.floor + "층 · " : ""}${it.pyeong ? it.pyeong + "평 · " : ""}매각기일 ${esc(it.sale_date || "-")}</div></div><div class="pr"><div class="big">${wonW(it.min_price)}</div><div class="muted">유찰 ${it.fail_count ?? 0}회</div>${it.risky ? `<span class="pill no">⚠ 권리관계 확인 필수</span>` : ""}</div></div>`).join("")}</div>` : ""}
+      ${p.programs?.length ? `<div class="biz" style="margin-top:10px">${p.programs.map((g) => `<div><strong>${esc(g.title)}</strong><p>${esc(g.org || "")}${g.end ? " · 마감 " + esc(g.end) : ""}</p>${g.url ? `<a href="${esc(g.url)}" target="_blank" rel="noopener">기업마당 공고 보기 ↗</a>` : ""}</div>`).join("")}</div>` : ""}
+      ${p.links?.length ? `<p>${p.links.filter((l) => l.url).map((l) => `<a href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.기관)} ↗</a>`).join(" · ")}</p>` : ""}
+      <div class="note">AI 답변은 참고용이며 감정평가·법률자문이 아닙니다. 경매 물건은 공유 시점 이후 매각·취하될 수 있어요.</div>
+      <div class="tools" style="margin-top:12px"><button type="button" onclick="backToList()" style="padding:10px 16px">경매 물건 둘러보기</button><button type="button" onclick="$('#chatBtn').click()" style="padding:10px 16px">나도 AI에게 물어보기</button></div></div>`;
+    $("#out").querySelectorAll("[data-sid]").forEach((el) => el.onclick = async () => {
+      const y = await (await fetch("/api/auctions?id=" + encodeURIComponent(el.dataset.sid))).json();
+      if (y.item) openAuc(y.item); else alert("이 물건은 이미 매각·취하되어 목록에 없어요.");
+    });
+  } catch (e) { $("#out").innerHTML = `<div class="err">${esc(e.message)}</div>`; }
+}
 $("#askFind").onclick = () => { $("#chatBtn").click(); $("#ci").value = "연남동 20~30평 식당 자리 경매로 나온 거 있어?"; $("#ci").focus(); };
 $("#chatBtn").onclick = () => { $("#chat").classList.add("open"); $("#chatBtn").style.display = "none"; chatDraw(false); $("#ci").focus(); };
 $("#cx").onclick = () => { $("#chat").classList.remove("open"); $("#chatBtn").style.display = ""; };
@@ -757,14 +791,17 @@ $("#cm").onclick = (e) => {
     if (it) { if (window.innerWidth < 700) $("#cx").click(); openAuc(it); }
     return;
   }
+  const sh = e.target.closest("[data-s]");
+  if (sh) { shareAnswer(+sh.dataset.s, sh); return; }
   const c = e.target.closest("[data-c]"), s = e.target.closest("[data-q]");
   if (c) { navigator.clipboard?.writeText(CHAT[+c.dataset.c].content).then(() => { c.textContent = "복사됨"; setTimeout(() => c.textContent = "복사", 1500); }).catch(() => {}); }
   if (s) chatSend(s.dataset.q);
 };
 
 const qp = new URLSearchParams(location.search);
-const q = qp.get("q"), aucId = qp.get("auc");
-if (aucId) { setMode("aucDetail"); fetch("/api/auctions?id=" + encodeURIComponent(aucId)).then((r) => r.json()).then((x) => x.item ? openAuc(x.item) : setMode("auc")).catch(() => setMode("auc")); }
+const q = qp.get("q"), aucId = qp.get("auc"), shareId = qp.get("share");
+if (shareId) showShare(shareId);
+else if (aucId) { setMode("aucDetail"); fetch("/api/auctions?id=" + encodeURIComponent(aucId)).then((r) => r.json()).then((x) => x.item ? openAuc(x.item) : setMode("auc")).catch(() => setMode("auc")); }
 else if (q) { setMode("addr"); $("#addr").value = q; run(q); }
 else setMode("auc");
 </script>
