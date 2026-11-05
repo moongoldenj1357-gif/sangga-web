@@ -103,7 +103,7 @@ footer{margin-top:40px;font-size:12px;color:var(--sub)}
 <div id="aucPanel" hidden>
   <div class="chips" id="fGrp" style="margin-top:14px">
     <button type="button" data-g="main" class="on">상가·오피스텔</button><button type="button" data-g="shop">상가</button><button type="button" data-g="officetel">오피스텔</button>
-    <button type="button" data-g="office">사무실·업무</button><button type="button" data-g="factory">공장·지식산업센터</button><button type="button" data-g="etc">기타 비주거</button>
+    <button type="button" data-g="office">사무실·업무</button><button type="button" data-g="factory">공장·지식산업센터</button><button type="button" data-g="warehouse">창고</button><button type="button" data-g="etc">기타 비주거</button>
   </div>
   <div class="tools" style="margin-top:10px">
     <select id="fSido"><option value="">서울·경기</option><option value="11">서울</option><option value="41">경기</option></select>
@@ -157,6 +157,7 @@ const BIZ = [
   { n: "병·의원", ok: ["의원", "치과의원", "한의원", "의료시설"], gen: ["제1종근린생활시설"], tip: "" },
   { n: "동물병원·펫샵", ok: ["동물병원", "동물미용실"], gen: ["제2종근린생활시설"], tip: "" },
   { n: "소규모 제조", ok: ["제조업소", "공장", "수리점"], gen: ["제2종근린생활시설"], tip: "제조업소 500㎡ 미만은 2종 근린생활시설(배출시설 제한)" },
+  { n: "창고·물류", ok: ["창고", "물류", "하역장"], gen: [], tip: "창고시설은 별도 용도(건축법 시행령 별표1 제18호)" },
 ];
 const NEIGHBOR = /근린생활|소매점|휴게음식점|제과점|일반음식점|이용원|미용원|세탁소|의원|학원|교습소|체력단련장|체육도장|사무소|금융업소|중개사무소|제조업소|수리점|노래연습장|동물병원|탁구장|목욕장/;
 
@@ -486,7 +487,7 @@ async function loadAuc(page) {
     const pages = Math.max(1, Math.ceil((x.total || 0) / 30));
     $("#aucList").innerHTML = `<div class="muted" style="margin-top:8px">${(x.total ?? 0).toLocaleString()}건 · ${page}/${pages}쪽</div><div class="auc">` +
       (x.items.map((it) => `<div class="it" data-id="${esc(it.id)}">
-        <div><b>${esc(it.print_case_no)}${it.item_no > 1 ? ` (${it.item_no})` : ""}</b> <span class="pill ${it.fail_count >= 2 ? "mid" : "ok"}" title="법원 용도: ${esc(it.usage || "")}">${({ shop: "상가", officetel: "오피스텔", office: "사무실·업무", factory: "공장·지산", etc: "기타" })[it.category] || esc(it.usage || "용도 미상")}</span>
+        <div><b>${esc(it.print_case_no)}${it.item_no > 1 ? ` (${it.item_no})` : ""}</b> <span class="pill ${it.fail_count >= 2 ? "mid" : "ok"}" title="법원 용도: ${esc(it.usage || "")}">${({ shop: "상가", officetel: "오피스텔", office: "사무실·업무", factory: "공장·지산", warehouse: "창고", etc: "기타" })[it.category] || esc(it.usage || "용도 미상")}</span>
           <div>${esc(it.lot_address || it.address || "")}${it.building_name ? " · " + esc(it.building_name) : ""}</div>
           <div class="muted">${esc(it.court_name || "")} ${esc(it.dept_name || "")} · 매각기일 ${esc(it.sale_date || "-")} ${dday(it.sale_date)}${it.areas ? " · " + esc(String(it.areas).slice(0, 40)) : ""}</div></div>
         <div class="pr"><div class="muted">감정가 ${wonW(it.appraised)}</div><div class="big">${wonW(it.min_price)}</div>
@@ -712,7 +713,7 @@ function pageContext(q) {
   return L.join("\n").slice(0, 9000);
 }
 function chatSuggest() {
-  if (!DATA) return ["연남동 20~30평 식당 자리 경매로 나온 거 있어?", "1층 카페 할 만한 5억 이하 경매 상가 찾아줘", "식당 창업 자금·지원 받을 수 있는 곳 알려줘"];
+  if (!DATA) return ["연남동 20~30평 식당 자리 경매로 나온 거 있어?", "1층 카페 할 만한 5억 이하 경매 상가 찾아줘", "식당 창업 자금·지원 받을 수 있는 곳 알려줘", "경기 남부 100평 정도 공장이나 창고 경매 있어?"];
   const sp = SEL ? SEL.title.split(" (")[0] : "이 건물";  // 예: 102호
   return [`${sp}에서 카페를 하려면 뭘 확인해야 해요?`, "이 동네 실거래 숫자를 쉽게 풀어 주세요", "주변 점포를 보면 어떤 업종이 경쟁이 적어요?"];
 }

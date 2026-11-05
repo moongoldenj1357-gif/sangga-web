@@ -83,7 +83,8 @@ function category(usage, buildings, name, address) {
   const u = usage || "", b = [buildings, name].filter(Boolean).join(" "), all = [buildings, name, address].filter(Boolean).join(" ");
   if (/아파트|다세대|연립|단독|다가구|빌라|주택/.test(u)) return "res";
   if (u === "오피스텔" || /오피스텔/.test(all)) return "officetel";
-  if (/공장|지식산업|아파트형/.test(b)) return "factory";
+  if (/공장/.test(u) || /공장|지식산업|아파트형|제조/.test(b)) return "factory";
+  if (/창고/.test(u) || /창고|물류|하역|저온|냉동/.test(b)) return "warehouse";
   if (/사무|업무시설/.test(b)) return "office";
   if (/상가|근린|점포/.test(u) || /근린|상가|점포|판매|소매|음식/.test(b)) return "shop";
   return "etc";

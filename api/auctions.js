@@ -1,7 +1,7 @@
 // 경매 물건 목록 (사이트 검색 화면용) — Supabase auction_items를 읽어 돌려줌
 const SB_URL = (process.env.SUPABASE_URL ?? "").trim().replace(/\/+$/, "").replace(/\/rest\/v1$/, "");
 const SB_KEY = process.env.SUPABASE_SECRET_KEY ?? "";
-const CATS = { main: ["shop", "officetel"], shop: ["shop"], officetel: ["officetel"], office: ["office"], factory: ["factory"], etc: ["etc"] };
+const CATS = { main: ["shop", "officetel"], shop: ["shop"], officetel: ["officetel"], office: ["office"], factory: ["factory"], warehouse: ["warehouse"], fw: ["factory", "warehouse"], etc: ["etc"] };
 const COLS = "id,category,court_name,dept_name,tel,print_case_no,item_no,sido_cd,sgg_cd,sigungu,dong,lot_address,address,building_name,usage,appraised,min_price,fail_count,sale_date,sale_place,buildings,areas,min_area,max_area,remarks,lot_count,first_seen,last_seen";
 
 async function sb(path) {

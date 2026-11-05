@@ -36,6 +36,7 @@ const SYSTEM_TOOLS = `
 
 [도구 사용]
 - 사용자가 "○○동 20평 식당 자리 있어?", "1층 카페 할 만한 경매 상가"처럼 창업할 자리를 찾으면 search_auctions 도구로 지금 진행 중인 경매 물건을 찾으세요. 지역(동·구), 면적(평이면 ×3.3058로 ㎡ 환산, 범위는 ±15% 여유), 업종, 예산(원)을 넣으세요. 말하지 않은 조건은 비워 두세요.
+- 공장·창고를 찾을 때는 kinds에 factory·warehouse를 넣고, 입지(용도지역·도로 폭·화물차 진입), 공장 설립·등록 가능 여부, 산업단지 입주 자격, 전기 용량, 층고·하중은 이 자료에 없으니 토지이음(eum.go.kr)의 토지이용계획과 시군 공장 인허가 부서에서 확인하라고 짧게 덧붙이세요.
 - 결과는 화면에 카드로 따로 보여지니, 답변에서는 몇 건이 나왔는지, 눈에 띄는 2~3건의 특징(층, 면적, 최저가, 유찰, 위험 표시), 고를 때 확인할 점만 짧게 정리하세요. 결과가 없으면 범위를 넓혀(옆 동, 구 전체, 면적 범위) 한 번 더 찾아보세요.
 - "적합 가능성"은 가능성일 뿐입니다. 경매 물건은 권리관계(임차인·유치권·대지권)를 반드시 확인해야 한다고 짧게 덧붙이세요.
 - 지원 공고를 찾을 때 region에는 "서울" 또는 "경기"처럼 시도를 넣고, 구·동 이름은 keywords에 넣으세요. field는 비워 두세요.
@@ -44,12 +45,13 @@ const SYSTEM_TOOLS = `
 
 const TOOLS = [
   { name: "search_auctions",
-    description: "서울·경기에서 지금 진행 중인 법원경매 상가·오피스텔 물건을 창업 조건으로 찾는다.",
+    description: "서울·경기에서 지금 진행 중인 법원경매 상가·오피스텔·사무실·공장·창고 물건을 창업 조건으로 찾는다.",
     input_schema: { type: "object", properties: {
       sido: { type: "string", enum: ["서울", "경기"], description: "시도. 모르면 생략" },
       sigungu: { type: "string", description: "시군구 이름 일부. 예: 마포구, 성남시 분당구" },
       dong: { type: "string", description: "법정동 이름 일부. 예: 연남동, 서교동" },
-      business: { type: "string", description: "하려는 업종. 예: 식당, 카페, 학원, 사무실" },
+      business: { type: "string", description: "하려는 업종. 예: 식당, 카페, 학원, 사무실, 제조공장, 물류창고" },
+      kinds: { type: "array", items: { type: "string", enum: ["shop", "officetel", "office", "factory", "warehouse"] }, description: "찾을 물건 종류. 식당·카페·소매는 shop, 사무실은 office·officetel, 제조는 factory, 물류·보관은 warehouse. 모르면 생략" },
       min_area_m2: { type: "number" }, max_area_m2: { type: "number" },
       max_price_won: { type: "number", description: "최저매각가격 상한(원)" },
       first_floor_only: { type: "boolean", description: "1층만" } } } },
@@ -83,6 +85,8 @@ const BUSINESS_HINT = [
   [/학원|교습|공부방/, /학원|교습|제2종근린|교육/],
   [/헬스|필라테스|요가|체육/, /체력단련|운동|제2종근린/],
   [/사무|오피스/, /사무|업무|근린/],
+  [/공장|제조|생산|가공/, /공장|제조|지식산업/],
+  [/창고|물류|보관|택배|유통/, /창고|물류|하역|저온|냉동/],
   [/미용|네일|피부/, /미용|제1종근린|근린/],
   [/병원|의원|약국/, /의원|의료|제1종근린/],
 ];
@@ -104,7 +108,10 @@ async function sbGet(path) {
 async function searchAuctions(a) {
   const today = new Date(Date.now() + 9 * 3600_000).toISOString().slice(0, 10);
   const enc = (v) => encodeURIComponent(String(v).replace(/[*,()%]/g, ""));
-  const f = ["active=eq.true", "category=in.(shop,officetel,office)", `sale_date=gte.${today}`,
+  const KINDS = ["shop", "officetel", "office", "factory", "warehouse"];
+  let kinds = (Array.isArray(a.kinds) ? a.kinds : []).filter((k) => KINDS.includes(k));
+  if (!kinds.length) kinds = /공장|제조|생산|가공/.test(a.business || "") ? ["factory", "warehouse"] : /창고|물류|보관|택배|유통/.test(a.business || "") ? ["warehouse", "factory"] : ["shop", "officetel", "office"];
+  const f = ["active=eq.true", `category=in.(${kinds.join(",")})`, `sale_date=gte.${today}`,
     "select=id,category,court_name,dept_name,tel,sale_place,print_case_no,item_no,sigungu,dong,lot_address,address,building_name,usage,appraised,min_price,fail_count,sale_date,buildings,areas,min_area,max_area,remarks,first_seen,last_seen",
     "order=sale_date.asc", "limit=400"];
   if (a.sido === "서울") f.push("sido_cd=eq.11"); else if (a.sido === "경기") f.push("sido_cd=eq.41");
@@ -122,7 +129,8 @@ async function searchAuctions(a) {
       else score += 2;
     }
     if (a.first_floor_only && floor !== 1) return null;
-    if (floor === 1) { score += 2; notes.push("1층"); } else if (floor != null && floor < 0) { score -= 1; notes.push("지하"); }
+    const streetBiz = !/공장|제조|생산|가공|창고|물류|보관|택배|사무|오피스/.test(a.business || "");
+    if (floor === 1) { score += streetBiz ? 2 : 1; notes.push("1층"); } else if (floor != null && floor < 0) { score -= 1; notes.push("지하"); }
     if (hint && hint.test(`${it.buildings || ""} ${it.usage || ""}`)) { score += 1; notes.push("건물 용도 문구가 업종과 맞을 가능성"); }
     const rate = it.appraised ? it.min_price / it.appraised : 1;
     const risky = (it.fail_count ?? 0) >= 5 || rate < 0.3 || RISKY.test(it.remarks || "");
