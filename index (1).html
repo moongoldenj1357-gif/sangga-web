@@ -80,6 +80,11 @@ footer{margin-top:40px;font-size:12px;color:var(--sub)}
 .mg.a{align-self:flex-start;background:#fff;border:1px solid var(--line);border-bottom-left-radius:4px}
 .mg.a ul{margin:4px 0;padding-left:18px}
 .mg .cp{display:block;margin-top:6px;background:none;color:var(--sub);padding:0;font-size:12px;font-weight:500;text-decoration:underline}
+.mg .cards{display:grid;gap:6px;margin-top:8px}
+.mg .cards div{border:1px solid var(--line);border-radius:10px;padding:8px 10px;cursor:pointer;background:var(--bg)}
+.mg .cards div:hover{border-color:var(--accent)}
+.mg .cards small{display:block;color:var(--sub)}
+.mg .links a{display:block;margin-top:4px;color:var(--accent)}
 .chips{display:flex;gap:6px;flex-wrap:wrap}
 .chips button{background:#fff;color:var(--accent);border:1px solid var(--accent);padding:6px 10px;font-size:13px;font-weight:500}
 #cf{display:flex;flex-direction:row!important;gap:6px;padding:10px;border-top:1px solid var(--line)}
@@ -92,22 +97,26 @@ footer{margin-top:40px;font-size:12px;color:var(--sub)}
 <div class="wrap">
 <header>
   <h1>상가 경매·창업 분석</h1>
-  <p>경매 물건이나 지번 주소 하나로 낙찰가 판단, 임대 vs 직접 사용, 가능한 업종까지 한 번에 봅니다. 서울·경기만 됩니다.</p>
+  <p>경매 물건이나 지번 주소 하나로 낙찰가 판단, 임대 vs 직접 사용, 가능한 업종까지 한 번에 봅니다. 서울·경기·인천(수도권)만 됩니다.</p>
 </header>
 <nav class="tabs"><button type="button" data-m="auc">경매 물건 찾기</button><button type="button" data-m="addr">주소로 분석</button></nav>
 <div id="aucPanel" hidden>
   <div class="chips" id="fGrp" style="margin-top:14px">
     <button type="button" data-g="main" class="on">상가·오피스텔</button><button type="button" data-g="shop">상가</button><button type="button" data-g="officetel">오피스텔</button>
-    <button type="button" data-g="office">사무실·업무</button><button type="button" data-g="factory">공장·지식산업센터</button><button type="button" data-g="etc">기타 비주거</button>
+    <button type="button" data-g="office">사무실·업무</button><button type="button" data-g="factory">공장·지식산업센터</button><button type="button" data-g="warehouse">창고</button><button type="button" data-g="etc">기타 비주거</button>
   </div>
   <div class="tools" style="margin-top:10px">
-    <select id="fSido"><option value="">서울·경기</option><option value="11">서울</option><option value="41">경기</option></select>
+    <select id="fSido"><option value="">서울·경기·인천</option><option value="11">서울</option><option value="41">경기</option><option value="28">인천</option></select>
     <select id="fSgg"><option value="">시군구 전체</option></select>
     <select id="fCourt"><option value="">법원 전체</option></select>
     <select id="fMax"><option value="">최저가 전체</option><option value="1">1억 이하</option><option value="3">3억 이하</option><option value="5">5억 이하</option><option value="10">10억 이하</option></select>
     <select id="fFail"><option value="">유찰 전체</option><option value="1">유찰 1회+</option><option value="2">유찰 2회+</option><option value="3">유찰 3회+</option></select>
     <select id="fSort"><option value="date">매각기일 가까운 순</option><option value="price">최저가 낮은 순</option><option value="fail">유찰 많은 순</option><option value="new">새로 나온 순</option></select>
     <input id="fQ" placeholder="주소·사건번호 검색" style="flex:1;min-width:140px">
+  </div>
+  <div class="note" style="display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap;margin-top:10px">
+    <span>💬 <b>창업 자리를 말로 찾아보세요.</b> 예: "연남동 20~30평 식당 자리 경매로 나온 거 있어?"</span>
+    <button type="button" id="askFind" style="padding:8px 14px;font-size:14px">AI에게 물어보기</button>
   </div>
   <div id="aucMeta" class="muted"></div>
   <div id="aucList"></div>
@@ -148,6 +157,7 @@ const BIZ = [
   { n: "병·의원", ok: ["의원", "치과의원", "한의원", "의료시설"], gen: ["제1종근린생활시설"], tip: "" },
   { n: "동물병원·펫샵", ok: ["동물병원", "동물미용실"], gen: ["제2종근린생활시설"], tip: "" },
   { n: "소규모 제조", ok: ["제조업소", "공장", "수리점"], gen: ["제2종근린생활시설"], tip: "제조업소 500㎡ 미만은 2종 근린생활시설(배출시설 제한)" },
+  { n: "창고·물류", ok: ["창고", "물류", "하역장"], gen: [], tip: "창고시설은 별도 용도(건축법 시행령 별표1 제18호)" },
 ];
 const NEIGHBOR = /근린생활|소매점|휴게음식점|제과점|일반음식점|이용원|미용원|세탁소|의원|학원|교습소|체력단련장|체육도장|사무소|금융업소|중개사무소|제조업소|수리점|노래연습장|동물병원|탁구장|목욕장/;
 
@@ -186,7 +196,7 @@ async function run(addr, opt = {}) {
 
 function render(d) {
   const keepAuc = AUC;
-  SEL = null; ST_SUM = null; TR_SUM = null; RENT_POS = null; RENT_SUM = null;
+  SEL = null; ST_SUM = null; TR_SUM = null; RENT_POS = null; RENT_SUM = null; RENT_UNIT = null;
   if (typeof CHAT !== "undefined" && CHAT.length && CHAT[CHAT.length - 1].role !== "divider") {
     CHAT.push({ role: "divider", content: `새 주소: ${d.주소} — 여기부터는 이 주소 기준으로 답해요` });
     if ($("#chat").classList.contains("open")) chatDraw(false);
@@ -477,7 +487,7 @@ async function loadAuc(page) {
     const pages = Math.max(1, Math.ceil((x.total || 0) / 30));
     $("#aucList").innerHTML = `<div class="muted" style="margin-top:8px">${(x.total ?? 0).toLocaleString()}건 · ${page}/${pages}쪽</div><div class="auc">` +
       (x.items.map((it) => `<div class="it" data-id="${esc(it.id)}">
-        <div><b>${esc(it.print_case_no)}${it.item_no > 1 ? ` (${it.item_no})` : ""}</b> <span class="pill ${it.fail_count >= 2 ? "mid" : "ok"}" title="법원 용도: ${esc(it.usage || "")}">${({ shop: "상가", officetel: "오피스텔", office: "사무실·업무", factory: "공장·지산", etc: "기타" })[it.category] || esc(it.usage || "용도 미상")}</span>
+        <div><b>${esc(it.print_case_no)}${it.item_no > 1 ? ` (${it.item_no})` : ""}</b> <span class="pill ${it.fail_count >= 2 ? "mid" : "ok"}" title="법원 용도: ${esc(it.usage || "")}">${({ shop: "상가", officetel: "오피스텔", office: "사무실·업무", factory: "공장·지산", warehouse: "창고", etc: "기타" })[it.category] || esc(it.usage || "용도 미상")}</span>
           <div>${esc(it.lot_address || it.address || "")}${it.building_name ? " · " + esc(it.building_name) : ""}</div>
           <div class="muted">${esc(it.court_name || "")} ${esc(it.dept_name || "")} · 매각기일 ${esc(it.sale_date || "-")} ${dday(it.sale_date)}${it.areas ? " · " + esc(String(it.areas).slice(0, 40)) : ""}</div></div>
         <div class="pr"><div class="muted">감정가 ${wonW(it.appraised)}</div><div class="big">${wonW(it.min_price)}</div>
@@ -581,7 +591,8 @@ async function renderRent(pos, unit) {
   let R;
   try { R = await rentData(); } catch { box.innerHTML = ""; return; }
   if (DATA !== d) return;
-  const sido = String(d.법정동코드 || "").startsWith("11") || (!d.법정동코드 && /서울/.test(d.주소)) ? "서울" : "경기";
+  const bc = String(d.법정동코드 || "");
+  const sido = bc.startsWith("11") || (!bc && /서울/.test(d.주소)) ? "서울" : bc.startsWith("28") || (!bc && /인천/.test(d.주소)) ? "인천" : "경기";
   const sgg = String(d.법정동코드 || "").slice(0, 5);
   const ds = R.districts.filter((x) => x.sido === sido);
   let hit = null, near = null, how = "";
@@ -703,14 +714,19 @@ function pageContext(q) {
   return L.join("\n").slice(0, 9000);
 }
 function chatSuggest() {
-  if (!DATA) return ["근린생활시설 1종과 2종은 뭐가 달라요?", "용도변경과 기재변경 차이는?", "상가 낙찰받으면 세금이 얼마나 나와요?"];
+  if (!DATA) return ["연남동 20~30평 식당 자리 경매로 나온 거 있어?", "1층 카페 할 만한 5억 이하 경매 상가 찾아줘", "식당 창업 자금·지원 받을 수 있는 곳 알려줘", "경기 남부 100평 정도 공장이나 창고 경매 있어?"];
   const sp = SEL ? SEL.title.split(" (")[0] : "이 건물";  // 예: 102호
   return [`${sp}에서 카페를 하려면 뭘 확인해야 해요?`, "이 동네 실거래 숫자를 쉽게 풀어 주세요", "주변 점포를 보면 어떤 업종이 경쟁이 적어요?"];
 }
 function chatDraw(pending) {
   const cm = $("#cm");
   let h = CHAT.length ? "" : `<div class="mg a">안녕하세요. 화면에 띄운 건물·호실·실거래·주변 점포 자료를 보고 답해 드려요. 용어나 절차도 물어보세요.</div>`;
-  CHAT.forEach((m, i) => h += m.role === "divider" ? `<div class="muted" style="text-align:center;font-size:12px;margin:4px 0">── ${esc(m.content)} ──</div>` : m.role === "user" ? `<div class="mg u">${esc(m.content)}</div>` : `<div class="mg a">${md(m.content)}<button type="button" class="cp" data-c="${i}">복사</button></div>`);
+  const extra = (m) => (m.items?.length ? `<div class="cards">${m.items.map((it) => `<div data-auc="${esc(it.id)}"><b>${esc(it.print_case_no)}</b> ${esc(it.sigungu || "")} ${esc(it.dong || "")}${it.building_name ? " · " + esc(it.building_name) : ""}
+      <small>${it.floor != null ? (it.floor < 0 ? "지하" + -it.floor : it.floor) + "층 · " : ""}${it.pyeong ? it.pyeong + "평(" + Math.round(it.area_m2) + "㎡) · " : ""}최저가 ${wonW(it.min_price)} · 유찰 ${it.fail_count ?? 0}회 · ${esc(it.sale_date || "")}${it.risky ? " · ⚠ 권리확인" : ""}</small></div>`).join("")}${m.total > m.items.length ? `<small class="muted">조건에 맞는 ${m.total}건 중 ${m.items.length}건</small>` : ""}</div>` : "") +
+    (m.programs?.length ? `<div class="cards">${m.programs.map((g) => `<div data-url="${esc(g.url || "https://www.bizinfo.go.kr")}"><b>${esc(g.title)}</b>
+      <small>${esc(g.org || "")}${g.end ? " · 마감 " + esc(g.end) : ""}${g.target ? " · 대상: " + esc(String(g.target).slice(0, 40)) : ""}</small><small style="color:var(--accent)">기업마당 공고 보기 ↗</small></div>`).join("")}</div>` : "") +
+    (m.links?.length ? `<div class="links">${m.links.map((l) => `<a href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.기관)} ↗</a>`).join("")}</div>` : "");
+  CHAT.forEach((m, i) => h += m.role === "divider" ? `<div class="muted" style="text-align:center;font-size:12px;margin:4px 0">── ${esc(m.content)} ──</div>` : m.role === "user" ? `<div class="mg u">${esc(m.content)}</div>` : `<div class="mg a">${md(m.content)}${extra(m)}<span style="display:flex;gap:12px"><button type="button" class="cp" data-c="${i}">복사</button><button type="button" class="cp" data-s="${i}">공유</button></span></div>`);
   if (pending) h += `<div class="mg a muted">답변을 쓰는 중…</div>`;
   if (!pending) h += `<div class="chips">${chatSuggest().map((q) => `<button type="button" data-q="${esc(q)}">${esc(q)}</button>`).join("")}</div>`;
   cm.innerHTML = h; cm.scrollTop = cm.scrollHeight;
@@ -720,27 +736,74 @@ async function chatSend(q) {
   CHAT.push({ role: "user", content: q }); chatDraw(true);
   $("#ci").value = ""; $("#cs").disabled = true;
   try {
-    const r = await fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ messages: CHAT.slice(CHAT.map((m) => m.role).lastIndexOf("divider") + 1).filter((m) => !String(m.content).startsWith("⚠️")).slice(-10), context: pageContext(q) }) });
+    const r = await fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ messages: CHAT.slice(CHAT.map((m) => m.role).lastIndexOf("divider") + 1).filter((m) => !String(m.content).startsWith("⚠️")).slice(-10).map((m) => ({ role: m.role, content: m.content + (m.items?.length ? `\n[찾은 물건: ${m.items.map((i) => i.print_case_no).join(", ")}]` : "") })), context: pageContext(q) }) });
     const x = await r.json();
     if (!r.ok) throw new Error(x.오류 || "AI 상담 오류");
-    CHAT.push({ role: "assistant", content: x.답변 + (x.남은횟수 <= 3 ? `\n\n(오늘 남은 질문 ${x.남은횟수}번)` : "") });
+    CHAT.push({ role: "assistant", content: x.답변 + (x.남은횟수 <= 3 ? `\n\n(오늘 남은 질문 ${x.남은횟수}번)` : ""), items: x.물건 || null, total: x.찾은건수 || 0, links: x.지원기관 || null, programs: x.공고 || null });
   } catch (e) {
     CHAT.pop(); CHAT.push({ role: "user", content: q }); CHAT.push({ role: "assistant", content: "⚠️ " + e.message });
   } finally { $("#cs").disabled = false; chatDraw(false); }
 }
+async function shareAnswer(i, btn) {
+  const m = CHAT[i]; if (!m) return;
+  let q = ""; for (let k = i - 1; k >= 0; k--) if (CHAT[k].role === "user") { q = CHAT[k].content; break; }
+  const old = btn.textContent; btn.textContent = "링크 만드는 중…";
+  try {
+    const r = await fetch("/api/share", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ q, a: m.content.replace(/\n\n\(오늘 남은 질문 \d+번\)$/, ""), place: DATA ? DATA.주소 : "", items: m.items || [], programs: m.programs || [], links: m.links || [] }) });
+    const x = await r.json(); if (!r.ok) throw new Error(x.오류 || "공유 실패");
+    const url = `${location.origin}/?share=${x.id}`;
+    if (navigator.share) { try { await navigator.share({ title: "상가 경매·창업 AI 상담", text: q ? `Q. ${q}` : "AI 상담 답변", url }); btn.textContent = "공유함"; } catch { btn.textContent = old; } }
+    else { await navigator.clipboard.writeText(url); btn.textContent = "링크 복사됨 — 카톡에 붙여 넣으세요"; }
+  } catch (e) { btn.textContent = "공유 실패"; }
+  setTimeout(() => (btn.textContent = old), 3000);
+}
+async function showShare(id) {
+  setMode("aucDetail");
+  $("#out").innerHTML = `<div class="card muted">공유된 답변을 불러오는 중…</div>`;
+  try {
+    const r = await fetch("/api/share?id=" + encodeURIComponent(id)); const x = await r.json();
+    if (!r.ok) throw new Error(x.오류 || "불러오기 실패");
+    const p = x.payload;
+    $("#out").innerHTML = `<div class="card stage"><h2>공유된 AI 상담 <span class="muted">${esc(String(x.created_at).slice(0, 10))}${p.place ? " · " + esc(p.place) : ""}</span></h2>
+      ${p.q ? `<p style="margin:0 0 10px"><b>Q.</b> ${esc(p.q)}</p>` : ""}<div>${md(p.a)}</div>
+      ${p.items?.length ? `<div class="auc">${p.items.map((it) => `<div class="it" data-sid="${esc(it.id)}"><div><b>${esc(it.print_case_no)}</b> ${esc(it.sigungu || "")} ${esc(it.dong || "")}${it.building_name ? " · " + esc(it.building_name) : ""}<div class="muted">${it.floor != null ? it.floor + "층 · " : ""}${it.pyeong ? it.pyeong + "평 · " : ""}매각기일 ${esc(it.sale_date || "-")}</div></div><div class="pr"><div class="big">${wonW(it.min_price)}</div><div class="muted">유찰 ${it.fail_count ?? 0}회</div>${it.risky ? `<span class="pill no">⚠ 권리관계 확인 필수</span>` : ""}</div></div>`).join("")}</div>` : ""}
+      ${p.programs?.length ? `<div class="biz" style="margin-top:10px">${p.programs.map((g) => `<div><strong>${esc(g.title)}</strong><p>${esc(g.org || "")}${g.end ? " · 마감 " + esc(g.end) : ""}</p>${g.url ? `<a href="${esc(g.url)}" target="_blank" rel="noopener">기업마당 공고 보기 ↗</a>` : ""}</div>`).join("")}</div>` : ""}
+      ${p.links?.length ? `<p>${p.links.filter((l) => l.url).map((l) => `<a href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.기관)} ↗</a>`).join(" · ")}</p>` : ""}
+      <div class="note">AI 답변은 참고용이며 감정평가·법률자문이 아닙니다. 경매 물건은 공유 시점 이후 매각·취하될 수 있어요.</div>
+      <div class="tools" style="margin-top:12px"><button type="button" onclick="backToList()" style="padding:10px 16px">경매 물건 둘러보기</button><button type="button" onclick="$('#chatBtn').click()" style="padding:10px 16px">나도 AI에게 물어보기</button></div></div>`;
+    $("#out").querySelectorAll("[data-sid]").forEach((el) => el.onclick = async () => {
+      const y = await (await fetch("/api/auctions?id=" + encodeURIComponent(el.dataset.sid))).json();
+      if (y.item) openAuc(y.item); else alert("이 물건은 이미 매각·취하되어 목록에 없어요.");
+    });
+  } catch (e) { $("#out").innerHTML = `<div class="err">${esc(e.message)}</div>`; }
+}
+$("#askFind").onclick = () => { $("#chatBtn").click(); $("#ci").value = "연남동 20~30평 식당 자리 경매로 나온 거 있어?"; $("#ci").focus(); };
 $("#chatBtn").onclick = () => { $("#chat").classList.add("open"); $("#chatBtn").style.display = "none"; chatDraw(false); $("#ci").focus(); };
 $("#cx").onclick = () => { $("#chat").classList.remove("open"); $("#chatBtn").style.display = ""; };
 $("#cf").onsubmit = (e) => { e.preventDefault(); chatSend($("#ci").value); };
 $("#ci").onkeydown = (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); chatSend($("#ci").value); } };
 $("#cm").onclick = (e) => {
+  const link = e.target.closest("[data-url]");
+  if (link) { window.open(link.dataset.url, "_blank", "noopener"); return; }
+  const card = e.target.closest("[data-auc]");
+  if (card) {
+    const m = CHAT.find((x) => x.items?.some((i) => i.id === card.dataset.auc));
+    const it = m?.items.find((i) => i.id === card.dataset.auc);
+    if (it) { if (window.innerWidth < 700) $("#cx").click(); openAuc(it); }
+    return;
+  }
+  const sh = e.target.closest("[data-s]");
+  if (sh) { shareAnswer(+sh.dataset.s, sh); return; }
   const c = e.target.closest("[data-c]"), s = e.target.closest("[data-q]");
   if (c) { navigator.clipboard?.writeText(CHAT[+c.dataset.c].content).then(() => { c.textContent = "복사됨"; setTimeout(() => c.textContent = "복사", 1500); }).catch(() => {}); }
   if (s) chatSend(s.dataset.q);
 };
 
 const qp = new URLSearchParams(location.search);
-const q = qp.get("q"), aucId = qp.get("auc");
-if (aucId) { setMode("aucDetail"); fetch("/api/auctions?id=" + encodeURIComponent(aucId)).then((r) => r.json()).then((x) => x.item ? openAuc(x.item) : setMode("auc")).catch(() => setMode("auc")); }
+const q = qp.get("q"), aucId = qp.get("auc"), shareId = qp.get("share");
+if (shareId) showShare(shareId);
+else if (aucId) { setMode("aucDetail"); fetch("/api/auctions?id=" + encodeURIComponent(aucId)).then((r) => r.json()).then((x) => x.item ? openAuc(x.item) : setMode("auc")).catch(() => setMode("auc")); }
 else if (q) { setMode("addr"); $("#addr").value = q; run(q); }
 else setMode("auc");
 </script>
