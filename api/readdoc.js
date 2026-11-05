@@ -50,7 +50,7 @@ export default async function handler(req, res) {
   let body;
   try { body = typeof req.body === "string" ? JSON.parse(req.body || "{}") : (req.body || {}); }
   catch { return res.status(400).json({ 오류: "요청을 읽지 못했어요." }); }
-  const files = (Array.isArray(body.files) ? body.files : []).slice(0, 4);
+  const files = (Array.isArray(body.files) ? body.files : []).slice(0, 6);
   if (!files.length) return res.status(400).json({ 오류: "파일이 없어요." });
   let bytes = 0;
   const blocks = [];
