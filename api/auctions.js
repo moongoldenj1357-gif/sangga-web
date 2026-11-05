@@ -34,6 +34,15 @@ export default async function handler(req, res) {
       const { rows } = await sb(`auction_items?id=eq.${encodeURIComponent(p.id)}&select=${COLS}`);
       return res.status(200).json({ item: rows[0] || null });
     }
+    // 사건번호 검색: 다른 조건은 모두 무시하고 모든 법원에서 같은 번호를 찾음 (예: 2024타경6942, 2024-6942, 6942)
+    const qs = String(p.q || "").replace(/\s+/g, "");
+    const cm = qs.match(/^(\d{4})(?:타경|-|\.)(\d{1,7})$/) || qs.match(/^(\d{4})타경?(\d{1,7})$/);
+    const onlyNo = !cm && /^\d{3,7}$/.test(qs) ? qs : null;
+    if (cm || onlyNo) {
+      const pat = cm ? `print_case_no=eq.${encodeURIComponent(`${cm[1]}타경${Number(cm[2])}`)}` : `print_case_no=like.${encodeURIComponent(`*타경${Number(onlyNo)}`)}`;
+      const { rows, total } = await sb(`auction_items?${pat}&select=${COLS},active&order=active.desc,sale_date.desc,court_name.asc,item_no.asc&limit=60`);
+      return res.status(200).json({ items: rows, total, page: 1, 사건번호검색: cm ? `${cm[1]}타경${Number(cm[2])}` : `타경 ${onlyNo}` });
+    }
     const f = [`active=eq.true`, `select=${COLS}`];
     if (/^\d{2}$/.test(p.sido || "")) f.push(`sido_cd=eq.${p.sido}`);
     if (/^\d{5}$/.test(p.sgg || "")) f.push(`sgg_cd=eq.${p.sgg}`);
