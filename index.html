@@ -689,7 +689,7 @@ function docBox() {
       <li><b>감정평가서</b>: 감정가 근거, 사진(내부 상태·간판·주변), 토지·건물 비중, 위반건축물 표시</li>
       <li><b>등기사항전부증명서</b>(인터넷등기소, 유료): 권리 순서를 날짜로 직접 확인</li>
     </ol>
-    <p style="margin:8px 0 0">서류 화면에서 <b>인쇄 → PDF로 저장</b>하거나 <b>화면 캡처</b>한 뒤 "서류 올려서 AI로 읽기"에 올리면 쉬운 말로 정리해 드려요. 올린 파일은 읽기만 하고 저장하지 않아요. 한 번에 4개, 합계 3MB까지.</p>
+    <p style="margin:8px 0 0">서류 화면에서 <b>인쇄 → PDF로 저장</b>하거나 <b>화면 캡처</b>한 뒤 "서류 올려서 AI로 읽기"에 올리면 쉬운 말로 정리해 드려요. 올린 파일은 읽기만 하고 저장하지 않아요. 한 번에 6장, 합계 3MB까지. 휴대폰은 화면 캡처가 사진첩에 바로 저장되니 그대로 골라 올리면 돼요. 종이 서류는 카메라로 찍어도 돼요.</p>
   </details>${out}`;
 }
 async function fileToPart(f) {
@@ -706,7 +706,7 @@ async function fileToPart(f) {
 }
 async function readDocs(list) {
   const a = AUC; if (!a || !list || !list.length) return;
-  const files = [...list].slice(0, 4);
+  const files = [...list].slice(0, 6);
   const names = files.map((f) => f.name).join(", ");
   const redraw = () => { const b = $("#aucDoc"); if (b && AUC && AUC.id === a.id) b.innerHTML = docBox(); };
   DOC_STATE = { id: a.id, busy: true, names }; redraw();
