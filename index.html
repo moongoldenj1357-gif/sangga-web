@@ -653,7 +653,74 @@ function renderAuc(unit) {
       입찰 전 <b>매각물건명세서의 '인수되는 권리'와 '임차인 현황'</b>을 꼭 보고, 처음이라면 법무사·변호사 등 전문가에게 권리분석을 받으세요.</div>` : ""; })()}
     ${a.remarks ? `<div class="${risky ? "warn" : "note"}"><b>물건 비고</b>: ${esc(a.remarks)}${risky ? "<br>⚠️ 권리관계에 주의할 문구가 있어요. 매각물건명세서로 꼭 확인하세요." : ""}</div>` : ""}
     ${cmp}
-    <div class="note">경매는 낙찰가 외에 <b>인수할 권리(선순위 임차인 보증금, 유치권 등)·명도 비용·밀린 관리비</b>가 더해질 수 있어요. 입찰 전 대법원 법원경매정보에서 <b>매각물건명세서·현황조사서·감정평가서</b>를 꼭 확인하세요. 이 화면은 공개 정보를 정리한 참고자료이며 권리분석·감정평가가 아닙니다. <a href="https://www.courtauction.go.kr" target="_blank" rel="noopener">법원경매정보 바로가기</a></div></div>`;
+    <div class="note">경매는 낙찰가 외에 <b>인수할 권리(선순위 임차인 보증금, 유치권 등)·명도 비용·밀린 관리비</b>가 더해질 수 있어요. 입찰 전 대법원 법원경매정보에서 <b>매각물건명세서·현황조사서·감정평가서</b>를 꼭 확인하세요. 이 화면은 공개 정보를 정리한 참고자료이며 권리분석·감정평가가 아닙니다. <a href="https://www.courtauction.go.kr" target="_blank" rel="noopener">법원경매정보 바로가기</a></div>
+    <div id="aucDoc">${docBox()}</div></div>`;
+}
+
+// ── 경매 서류: 법원 사이트 바로가기 + 올린 서류를 AI가 읽고 정리 (파일은 저장하지 않음)
+let DOC_STATE = null; // { id, busy, text, err, names }
+function copyCase() {
+  if (!AUC) return;
+  window.open("https://www.courtauction.go.kr/", "_blank", "noopener");
+  const t = AUC.print_case_no;
+  try { navigator.clipboard.writeText(t); } catch {}
+  const b = $("#copyMsg"); if (b) b.textContent = `사건번호 ${t} 를 복사했어요. 법원경매 사이트에서 붙여넣기(Ctrl+V) 하세요.`;
+}
+function docBox() {
+  const a = AUC; if (!a) return "";
+  const st = DOC_STATE && DOC_STATE.id === a.id ? DOC_STATE : null;
+  let out = "";
+  if (st?.busy) out = `<div class="note"><span class="spin" style="border-color:var(--accent);border-right-color:transparent"></span> ${esc(st.names)} 읽는 중이에요. 쪽수에 따라 20초~1분쯤 걸려요.</div>`;
+  else if (st?.err) out = `<div class="err" style="margin-top:10px">${esc(st.err)}</div>`;
+  else if (st?.text) out = `<div style="margin-top:10px;background:var(--bg,#f6f4ef);border-radius:12px;padding:12px 14px;line-height:1.7"><div class="muted" style="font-size:13px">AI가 읽은 서류 정리 · ${esc(st.names)}</div><div style="margin-top:6px;font-size:14px">${md(st.text)}</div></div>
+    <p class="muted" style="margin:6px 0 0;font-size:13px">궁금한 점은 오른쪽 아래 AI 상담에 물어보세요. 이 정리 내용을 보고 답해요.</p>`;
+  return `<h2 style="margin-top:18px;font-size:16px">권리관계 서류 확인 <span class="muted">입찰 전 꼭 보세요</span></h2>
+  <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+    <button type="button" onclick="copyCase()">사건번호 복사하고 법원경매 열기</button>
+    <label style="display:inline-flex;align-items:center;gap:6px;border:1px solid var(--accent);color:var(--accent);border-radius:10px;padding:10px 14px;cursor:pointer;font-weight:600;font-size:15px">
+      📄 서류 올려서 AI로 읽기<input type="file" accept="application/pdf,image/*" multiple style="display:none" onchange="readDocs(this.files)" ${st?.busy ? "disabled" : ""}></label>
+  </div>
+  <p id="copyMsg" class="muted" style="margin:6px 0 0;font-size:13px"></p>
+  <details class="note" style="margin-top:8px"><summary style="cursor:pointer"><b>법원경매 사이트에서 서류 찾는 법 · 무엇을 봐야 하나</b></summary>
+    <ol style="margin:8px 0 0;padding-left:20px">
+      <li><b>찾는 법</b>: 법원경매정보 → 경매물건 → <b>경매사건검색</b> → 법원 "${esc(a.court_name || "")}" 선택 → 사건번호 붙여넣기 → 검색 → 사건 상세 화면의 서류 버튼</li>
+      <li><b>매각물건명세서</b>(가장 중요): ① 최선순위 설정일자(말소기준권리) ② 임차인의 전입·사업자등록일과 확정일자, 배당요구 여부 ③ "매각으로 소멸되지 않는 것" ④ 비고란(유치권·법정지상권·특별매각조건)</li>
+      <li><b>현황조사서</b>: 실제로 누가 쓰고 있는지(점유자), 영업 중인지, 임대차 관계 진술</li>
+      <li><b>감정평가서</b>: 감정가 근거, 사진(내부 상태·간판·주변), 토지·건물 비중, 위반건축물 표시</li>
+      <li><b>등기사항전부증명서</b>(인터넷등기소, 유료): 권리 순서를 날짜로 직접 확인</li>
+    </ol>
+    <p style="margin:8px 0 0">서류 화면에서 <b>인쇄 → PDF로 저장</b>하거나 <b>화면 캡처</b>한 뒤 "서류 올려서 AI로 읽기"에 올리면 쉬운 말로 정리해 드려요. 올린 파일은 읽기만 하고 저장하지 않아요. 한 번에 4개, 합계 3MB까지.</p>
+  </details>${out}`;
+}
+async function fileToPart(f) {
+  if (f.type === "application/pdf") {
+    const data = await new Promise((ok, no) => { const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = no; r.readAsDataURL(f); });
+    return { type: f.type, data };
+  }
+  if (!/^image\//.test(f.type)) throw new Error(`${f.name}: PDF나 사진만 올릴 수 있어요.`);
+  const bmp = await createImageBitmap(f);
+  const k = Math.min(1, 2000 / Math.max(bmp.width, bmp.height));
+  const c = document.createElement("canvas"); c.width = Math.round(bmp.width * k); c.height = Math.round(bmp.height * k);
+  c.getContext("2d").drawImage(bmp, 0, 0, c.width, c.height);
+  return { type: "image/jpeg", data: c.toDataURL("image/jpeg", 0.85) };
+}
+async function readDocs(list) {
+  const a = AUC; if (!a || !list || !list.length) return;
+  const files = [...list].slice(0, 4);
+  const names = files.map((f) => f.name).join(", ");
+  const redraw = () => { const b = $("#aucDoc"); if (b && AUC && AUC.id === a.id) b.innerHTML = docBox(); };
+  DOC_STATE = { id: a.id, busy: true, names }; redraw();
+  try {
+    const parts = await Promise.all(files.map(fileToPart));
+    const size = parts.reduce((n, p) => n + p.data.length * 0.75, 0);
+    if (size > 3_300_000) throw new Error("파일이 너무 커요(합계 3MB까지). 필요한 쪽만 PDF로 저장하거나 화면 캡처로 올려 주세요.");
+    const ctx = `사건 ${a.print_case_no} (${a.court_name || ""}) / 용도 ${a.usage || "-"} / 감정가 ${a.appraised || "-"}원 / 최저가 ${a.min_price || "-"}원 / 유찰 ${a.fail_count ?? 0}회 / 매각기일 ${a.sale_date || "-"} / 비고 ${a.remarks || "없음"}`;
+    const r = await fetch("/api/readdoc", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ files: parts, context: ctx }) });
+    let x; try { x = await r.json(); } catch { throw new Error(r.status === 413 ? "파일이 너무 커요. 쪽수를 줄여 주세요." : `서버 오류(${r.status})`); }
+    if (!r.ok) throw new Error(x.오류 || "서류를 읽지 못했어요");
+    DOC_STATE = { id: a.id, text: x.정리, names };
+  } catch (e) { DOC_STATE = { id: a.id, err: e.message, names }; }
+  redraw();
 }
 
 // ── 임대료·공실률 (한국부동산원 상업용부동산 임대동향조사)
@@ -800,6 +867,7 @@ function pageContext(q) {
     if (TR_SUM.same.length) L.push("같은 지번 거래: " + TR_SUM.same.map((t) => `${t.deal_date} ${t.floor}층 ${t.building_area}㎡ ${won(t.deal_amount_10k)}원`).join("; "));
   }
   if (AUC) L.unshift(`★ 경매 물건: ${AUC.print_case_no} (${AUC.court_name} ${AUC.dept_name || ""}) / 용도 ${AUC.usage || "-"} / 감정가 ${won(AUC.appraised / 1e4)}원, 최저매각가격 ${won(AUC.min_price / 1e4)}원(감정가의 ${AUC.appraised ? Math.round(AUC.min_price / AUC.appraised * 100) : "?"}%), 유찰 ${AUC.fail_count}회, 매각기일 ${AUC.sale_date || "-"} / 건물 ${AUC.buildings || "-"} / 면적 ${AUC.areas || "-"} / 비고 ${AUC.remarks || "없음"}. 권리분석(말소기준권리, 임차인 대항력, 인수 권리)은 이 자료에 없음 — 매각물건명세서·현황조사서 확인 필요.`);
+  if (AUC && DOC_STATE?.text && DOC_STATE.id === AUC.id) L.push(`★ 사용자가 올린 경매 서류(${DOC_STATE.names})를 AI가 정리한 내용:\n${DOC_STATE.text.slice(0, 2500)}`);
   if (LAND_SUM) L.push(LAND_SUM);
   if (OFFI_SUM) L.push(OFFI_SUM);
   if (RENT_SUM) L.push(RENT_SUM);
