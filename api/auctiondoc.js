@@ -66,14 +66,14 @@ const SYSTEM = `당신은 법원경매 현황조사서(집행관이 현장에 �
 [규칙]
 - 개인 이름·주민번호·전화번호·개인 주소는 절대 쓰지 마세요("임차인1", "소유자", "채무자 측"처럼). 회사·법인 이름은 써도 됩니다.
 - 자료에 있는 것만 쓰고 추측하지 마세요. 확정 판단 대신 "~로 보입니다"를 쓰세요.
-- 쉬운 한국어, 전문용어는 처음에 괄호로 풀이.
+- 쉬운 한국어, 전문용어는 처음에 괄호로 풀이. 제목 기호(#)는 쓰지 말고, 각 항목은 1~3줄로 짧게. 전체 25줄 이내.
 - 마지막 줄: "현황조사서는 조사 당시의 기록이라 지금과 다를 수 있어요. 대항력·인수 여부는 매각물건명세서로 확인하세요."`;
 
 export default async function handler(req, res) {
   res.setHeader("Cache-Control", "no-store");
   if (!SB_URL || !SB_KEY || !API_KEY) return res.status(500).json({ 오류: "환경변수를 확인하세요." });
   const id = String(req.query?.id || "");
-  const kind = "curst";
+  const kind = "curst2";  // 정리 방식이 바뀌면 숫자를 올려 예전 저장본을 쓰지 않음
   try {
     const [it] = await sb("GET", `auction_items?id=eq.${encodeURIComponent(id)}&select=id,court_code,court_name,print_case_no,usage,remarks,sale_date`);
     if (!it) return res.status(404).json({ 오류: "물건을 찾지 못했어요." });
@@ -100,13 +100,14 @@ export default async function handler(req, res) {
     const r = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: { "x-api-key": API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-      body: JSON.stringify({ model: MODEL, max_tokens: 1800, system: SYSTEM,
+      body: JSON.stringify({ model: MODEL, max_tokens: 3000, system: SYSTEM,
         messages: [{ role: "user", content: `[물건] ${it.print_case_no} (${it.court_name || ""}) / 용도 ${it.usage || "-"} / 비고 ${it.remarks || "없음"}\n\n[현황조사서 자료]\n${text.slice(0, 40000)}` }] }),
       signal: AbortSignal.timeout(50000),
     });
     const d = await r.json();
     if (!r.ok) return res.status(502).json({ 오류: `AI 응답 오류(${r.status})` });
-    const summary = (d.content || []).filter((c) => c.type === "text").map((c) => c.text).join("\n").trim();
+    let summary = (d.content || []).filter((c) => c.type === "text").map((c) => c.text).join("\n").trim();
+    if (d.stop_reason === "max_tokens") return res.status(200).json({ 정리: summary + "\n\n(내용이 길어 끝이 잘렸어요. 잠시 뒤 다시 눌러 보세요.)", 출처: "법원 현황조사서" });
     await sb("POST", "auction_docs?on_conflict=id", [{ id: id + ":" + kind, item_id: id, kind, summary, created_at: new Date().toISOString() }], "resolution=merge-duplicates,return=minimal");
     return res.status(200).json({ 정리: summary, 출처: "법원 현황조사서" });
   } catch (e) {
