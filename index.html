@@ -97,7 +97,7 @@ footer{margin-top:40px;font-size:12px;color:var(--sub)}
 <div class="wrap">
 <header>
   <h1>상가 경매·창업 분석</h1>
-  <p>경매 물건이나 지번 주소 하나로 낙찰가 판단, 임대 vs 직접 사용, 가능한 업종까지 한 번에 봅니다. 서울·경기만 됩니다.</p>
+  <p>경매 물건이나 지번 주소 하나로 낙찰가 판단, 임대 vs 직접 사용, 가능한 업종까지 한 번에 봅니다. 서울·경기·인천(수도권)만 됩니다.</p>
 </header>
 <nav class="tabs"><button type="button" data-m="auc">경매 물건 찾기</button><button type="button" data-m="addr">주소로 분석</button></nav>
 <div id="aucPanel" hidden>
@@ -106,7 +106,7 @@ footer{margin-top:40px;font-size:12px;color:var(--sub)}
     <button type="button" data-g="office">사무실·업무</button><button type="button" data-g="factory">공장·지식산업센터</button><button type="button" data-g="warehouse">창고</button><button type="button" data-g="etc">기타 비주거</button>
   </div>
   <div class="tools" style="margin-top:10px">
-    <select id="fSido"><option value="">서울·경기</option><option value="11">서울</option><option value="41">경기</option></select>
+    <select id="fSido"><option value="">서울·경기·인천</option><option value="11">서울</option><option value="41">경기</option><option value="28">인천</option></select>
     <select id="fSgg"><option value="">시군구 전체</option></select>
     <select id="fCourt"><option value="">법원 전체</option></select>
     <select id="fMax"><option value="">최저가 전체</option><option value="1">1억 이하</option><option value="3">3억 이하</option><option value="5">5억 이하</option><option value="10">10억 이하</option></select>
@@ -591,7 +591,8 @@ async function renderRent(pos, unit) {
   let R;
   try { R = await rentData(); } catch { box.innerHTML = ""; return; }
   if (DATA !== d) return;
-  const sido = String(d.법정동코드 || "").startsWith("11") || (!d.법정동코드 && /서울/.test(d.주소)) ? "서울" : "경기";
+  const bc = String(d.법정동코드 || "");
+  const sido = bc.startsWith("11") || (!bc && /서울/.test(d.주소)) ? "서울" : bc.startsWith("28") || (!bc && /인천/.test(d.주소)) ? "인천" : "경기";
   const sgg = String(d.법정동코드 || "").slice(0, 5);
   const ds = R.districts.filter((x) => x.sido === sido);
   let hit = null, near = null, how = "";

@@ -6,11 +6,11 @@ export const config = { maxDuration: 60 };
 const BASE = "https://www.courtauction.go.kr";
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 const PAGE = "/pgj/index.on?w2xPath=/pgj/ui/pgj100/PGJ151F00.xml&pgjId=151F00";
-const SIDOS = ["11", "41"];             // 서울, 경기
+const SIDOS = ["11", "41", "28"];       // 서울, 경기, 인천
 const PAGE_SIZE = 100;
 const TIME_BUDGET_MS = 45_000;
 const MIN_GAP_MS = 3000;
-const DAILY_CALL_CAP = 250;
+const DAILY_CALL_CAP = 320;
 const MIN_RERUN_MS = 8 * 60_000;
 
 const SB_URL = (process.env.SUPABASE_URL ?? "").trim().replace(/\/+$/, "").replace(/\/rest\/v1$/, "");

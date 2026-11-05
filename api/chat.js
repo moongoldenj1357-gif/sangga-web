@@ -39,15 +39,15 @@ const SYSTEM_TOOLS = `
 - 공장·창고를 찾을 때는 kinds에 factory·warehouse를 넣고, 입지(용도지역·도로 폭·화물차 진입), 공장 설립·등록 가능 여부, 산업단지 입주 자격, 전기 용량, 층고·하중은 이 자료에 없으니 토지이음(eum.go.kr)의 토지이용계획과 시군 공장 인허가 부서에서 확인하라고 짧게 덧붙이세요.
 - 결과는 화면에 카드로 따로 보여지니, 답변에서는 몇 건이 나왔는지, 눈에 띄는 2~3건의 특징(층, 면적, 최저가, 유찰, 위험 표시), 고를 때 확인할 점만 짧게 정리하세요. 결과가 없으면 범위를 넓혀(옆 동, 구 전체, 면적 범위) 한 번 더 찾아보세요.
 - "적합 가능성"은 가능성일 뿐입니다. 경매 물건은 권리관계(임차인·유치권·대지권)를 반드시 확인해야 한다고 짧게 덧붙이세요.
-- 지원 공고를 찾을 때 region에는 "서울" 또는 "경기"처럼 시도를 넣고, 구·동 이름은 keywords에 넣으세요. field는 비워 두세요.
+- 지원 공고를 찾을 때 region에는 "서울", "경기", "인천"처럼 시도를 넣고, 구·동 이름은 keywords에 넣으세요. field는 비워 두세요.
 - 소상공인 정책자금·보증·경영안정자금·창업교육·상권 활성화처럼 식당·카페 같은 생활 업종 창업자에게 도움이 되는 공고를 우선 소개하고, 직원 채용 장려금처럼 조건이 다른 공고는 "조건이 맞으면"이라고 구분하세요.
 - 창업 자금·대출·보증·정부지원·교육·컨설팅을 물으면 먼저 find_support_programs 도구로 기업마당의 지금 접수 중인 공고를 찾으세요(지역, 업종·대상 키워드). 공고는 화면에 카드로 따로 보여지니, 답변에서는 눈에 띄는 2~3개만 공고명·주관기관·마감일로 짧게 소개하세요. 공고가 없거나 오류면 startup_support 도구로 공식 기관 목록을 안내하세요. 금리·한도·지원금액처럼 바뀌는 숫자는 말하지 말고 "공고에서 확인"하라고 하세요. 기관명과 주소(URL)는 도구 결과에 있는 것만 쓰세요.`;
 
 const TOOLS = [
   { name: "search_auctions",
-    description: "서울·경기에서 지금 진행 중인 법원경매 상가·오피스텔·사무실·공장·창고 물건을 창업 조건으로 찾는다.",
+    description: "서울·경기·인천에서 지금 진행 중인 법원경매 상가·오피스텔·사무실·공장·창고 물건을 창업 조건으로 찾는다.",
     input_schema: { type: "object", properties: {
-      sido: { type: "string", enum: ["서울", "경기"], description: "시도. 모르면 생략" },
+      sido: { type: "string", enum: ["서울", "경기", "인천"], description: "시도. 모르면 생략" },
       sigungu: { type: "string", description: "시군구 이름 일부. 예: 마포구, 성남시 분당구" },
       dong: { type: "string", description: "법정동 이름 일부. 예: 연남동, 서교동" },
       business: { type: "string", description: "하려는 업종. 예: 식당, 카페, 학원, 사무실, 제조공장, 물류창고" },
@@ -58,12 +58,12 @@ const TOOLS = [
   { name: "find_support_programs",
     description: "기업마당(중소벤처기업부)의 최신 지원사업 공고 중 지금 접수 중인 것을 지역·키워드로 찾는다.",
     input_schema: { type: "object", properties: {
-      region: { type: "string", description: "서울, 경기, 또는 시군구 이름" },
+      region: { type: "string", description: "서울, 경기, 인천, 또는 시군구 이름" },
       keywords: { type: "array", items: { type: "string" }, description: "예: 창업, 소상공인, 음식점, 외식, 자금, 보증, 교육" },
       field: { type: "string", enum: ["", "01", "02", "03", "04", "05", "06", "07", "09"], description: "분야 코드(모르면 비움): 01 금융, 02 기술, 03 인력, 04 수출, 05 내수, 06 창업, 07 경영, 09 기타" } } } },
   { name: "startup_support",
     description: "소상공인 창업 자금·보증·정부지원·교육·컨설팅 공식 기관 목록을 돌려준다.",
-    input_schema: { type: "object", properties: { sido: { type: "string", enum: ["서울", "경기", "모름"] }, topic: { type: "string", description: "자금, 보증, 교육, 상권, 전체 등" } } } },
+    input_schema: { type: "object", properties: { sido: { type: "string", enum: ["서울", "경기", "인천", "모름"] }, topic: { type: "string", description: "자금, 보증, 교육, 상권, 전체 등" } } } },
 ];
 
 const SUPPORT = [
@@ -76,6 +76,7 @@ const SUPPORT = [
   { 분야: "보증(서울)", 기관: "서울신용보증재단", url: "https://www.seoulshinbo.co.kr", 설명: "서울 소상공인 보증·자영업지원센터 컨설팅", sido: "서울" },
   { 분야: "보증(경기)", 기관: "경기신용보증재단", url: "https://www.gcgf.or.kr", 설명: "경기 소상공인 보증·경영 지원", sido: "경기" },
   { 분야: "지역 소상공인 지원(경기)", 기관: "경기도 소상공인 지원 안내(경기도청)", url: "https://www.gg.go.kr", 설명: "경기도·시군 소상공인 지원사업 공고", sido: "경기" },
+  { 분야: "보증(인천)", 기관: "인천신용보증재단", url: "https://www.icsinbo.or.kr", 설명: "인천 소상공인 보증·경영 지원", sido: "인천" },
   { 분야: "지역 소상공인 지원(서울)", 기관: "서울시 소상공인 지원 안내(서울시 경제분야)", url: "https://news.seoul.go.kr/economy/small-business-supports", 설명: "서울시 자영업 지원·자금·교육·컨설팅 안내", sido: "서울" },
 ];
 
@@ -114,7 +115,8 @@ async function searchAuctions(a) {
   const f = ["active=eq.true", `category=in.(${kinds.join(",")})`, `sale_date=gte.${today}`,
     "select=id,category,court_name,dept_name,tel,sale_place,print_case_no,item_no,sigungu,dong,lot_address,address,building_name,usage,appraised,min_price,fail_count,sale_date,buildings,areas,min_area,max_area,remarks,first_seen,last_seen",
     "order=sale_date.asc", "limit=400"];
-  if (a.sido === "서울") f.push("sido_cd=eq.11"); else if (a.sido === "경기") f.push("sido_cd=eq.41");
+  const SD = { 서울: "11", 경기: "41", 인천: "28" };
+  if (SD[a.sido]) f.push(`sido_cd=eq.${SD[a.sido]}`);
   if (a.sigungu) f.push(`sigungu=ilike.*${enc(a.sigungu.replace(/\s+/g, "*"))}*`);
   if (a.dong) f.push(`dong=ilike.*${enc(a.dong.replace(/동$|가$/, ""))}*`);
   if (a.max_price_won > 0) f.push(`min_price=lte.${Math.round(a.max_price_won)}`);
