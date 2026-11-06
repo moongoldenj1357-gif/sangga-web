@@ -30,6 +30,20 @@ export default async function handler(req, res) {
       const [run] = (await sb("auction_runs?select=run_date,done,saved,totals&order=run_date.desc&limit=1")).rows;
       return res.status(200).json({ facets: f, groups: CATS, 최근수집: run || null });
     }
+    // 낙찰가율: 같은 시군구·종류 → 같은 시도·종류 → 같은 시도 전체 (최근 6개월, 우리가 기록한 결과)
+    if (p.rates) {
+      const since = new Date(Date.now() + 9 * 3600_000 - 183 * 864e5).toISOString().slice(0, 10);
+      const base = `auction_results?select=result,sold_rate&result=in.(매각,유찰)&sale_date=gte.${since}&limit=5000`;
+      const sum = (rows) => { const r = rows.filter((x) => x.result === "매각" && x.sold_rate != null).map((x) => Number(x.sold_rate)).sort((a, b) => a - b);
+        const q = (k) => r.length ? r[Math.min(r.length - 1, Math.floor((r.length - 1) * k))] : null;
+        return { 전체: rows.length, 매각: r.length, 중간: q(0.5), 하위25: q(0.25), 상위25: q(0.75) }; };
+      const cat = /^[a-z]+$/.test(p.cat || "") ? p.cat : null, sgg = /^\d{5}$/.test(p.sgg || "") ? p.sgg : null, sido = /^\d{2}$/.test(p.sido || "") ? p.sido : null;
+      const out = {};
+      if (sgg && cat) out.시군구 = sum((await sb(`${base}&sgg_cd=eq.${sgg}&category=eq.${cat}`)).rows);
+      if (sido && cat) out.시도 = sum((await sb(`${base}&sido_cd=eq.${sido}&category=eq.${cat}`)).rows);
+      if (sido) out.시도전체 = sum((await sb(`${base}&sido_cd=eq.${sido}`)).rows);
+      return res.status(200).json({ 기준: `${since} 이후 우리가 기록한 결과`, ...out });
+    }
     if (p.id) {
       const { rows } = await sb(`auction_items?id=eq.${encodeURIComponent(p.id)}&select=${COLS}`);
       return res.status(200).json({ item: rows[0] || null });
