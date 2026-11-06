@@ -235,7 +235,7 @@ async function run(addr, opt = {}) {
 
 function render(d) {
   const keepAuc = AUC;
-  SEL = null; ST_SUM = null; TR_SUM = null; OFFI_SUM = null; LAND_SUM = null; LAND_HINTS = []; FL_SUM = null; RENT_REF = null; LEASE_SUM = null; LEASE_OUT = ""; RENT_POS = null; RENT_SUM = null; RENT_UNIT = null;
+  SEL = null; ST_SUM = null; TR_SUM = null; OFFI_SUM = null; LAND_SUM = null; LAND_HINTS = []; FL_SUM = null; SEL_SUM = null; RENT_REF = null; LEASE_SUM = null; LEASE_OUT = ""; RENT_POS = null; RENT_SUM = null; RENT_UNIT = null;
   if (typeof CHAT !== "undefined" && CHAT.length && CHAT[CHAT.length - 1].role !== "divider") {
     CHAT.push({ role: "divider", content: `새 주소: ${d.주소} — 여기부터는 이 주소 기준으로 답해요` });
     if ($("#chat").classList.contains("open")) chatDraw(false);
@@ -375,7 +375,7 @@ const quant = (a, q) => { const b = a.filter((x) => x != null && isFinite(x)).so
 const stat = (rows) => { const v = rows.map((t) => Number(t.price_per_m2)).filter((x) => x > 0); return { n: v.length, med: quant(v, .5), q1: quant(v, .25), q3: quant(v, .75) }; };
 const isF1 = (f) => /^(지상)?\s*1\s*(층)?$/.test(String(f ?? "").trim());
 const isUnder = (f) => /^지|지하|^B|^-/.test(String(f ?? "").trim());
-let FL_SUM = null, LAND_HINTS = [], RENT_REF = null, LEASE_SUM = null, LAND_SUM = null, OFFI_SUM = null, REF = null, TR_SUM = null, ST_SUM = null, SEL = null, RENT_POS = null, RENT_SUM = null, RENT_UNIT = null;
+let SEL_SUM = null, FL_SUM = null, LAND_HINTS = [], RENT_REF = null, LEASE_SUM = null, LAND_SUM = null, OFFI_SUM = null, REF = null, TR_SUM = null, ST_SUM = null, SEL = null, RENT_POS = null, RENT_SUM = null, RENT_UNIT = null;
 
 function tradesCard(d) {
   const clean = (r) => !String(r.share_type || "").includes("지분");
@@ -537,9 +537,38 @@ async function loadFlpop(pos) {
     const r = await fetch(`/api/stores?flpop=${t.c}`); const x = await r.json();
     if (DATA !== d) return;
     if (!r.ok) throw new Error(x.오류 || "유동인구를 불러오지 못했어요");
-    box.innerHTML = flpopCard(t, x, near);
+    box.innerHTML = flpopCard(t, x, near) + `<div id="selng"><div class="card muted">${esc(t.n)} 상권 업종별 매출·점포를 불러오는 중… (처음엔 20초쯤 걸릴 수 있어요)</div></div>`;
+    loadSelng(t, d);
   } catch (e) { box.innerHTML = `<div class="card"><h2>상권 유동인구</h2><div class="err">${esc(e.message)}</div></div>`; }
 }
+const BIZ_SEOUL = { "카페·디저트": /커피|제과/, "일반음식점·주점": /한식|중식|일식|양식|분식|치킨|패스트|호프|주점/, "편의점·소매": /편의점|슈퍼/, "미용실·네일": /미용|네일|피부/, "학원·교습소": /학원/, "헬스장·필라테스": /스포츠|헬스/, "병·의원": /의원/ };
+async function loadSelng(t, d) {
+  const box = $("#selng"); if (!box) return;
+  try {
+    const r = await fetch(`/api/stores?selng=${t.c}`); const x = await r.json();
+    if (DATA !== d) return;
+    if (!r.ok) throw new Error(x.오류 || "매출 자료를 불러오지 못했어요");
+    box.innerHTML = selngCard(t, x);
+  } catch (e) { box.innerHTML = `<div class="card"><h2>업종별 매출·점포</h2><div class="err">${esc(e.message)}</div></div>`; }
+}
+function selngCard(t, x) {
+  const q = `${String(x.분기).slice(0, 4)}년 ${String(x.분기).slice(4)}분기`;
+  const L = x.업종 || [];
+  if (!L.length) return `<div class="card"><h2>업종별 매출·점포</h2><p class="muted">${esc(t.n)} 상권의 ${q} 매출 자료가 없어요.</p></div>`;
+  const hi = BIZ_SEOUL[LEASE_IN?.biz] || null;
+  const per = (o) => { const n = o.유사점포 || o.점포; return o.분기매출 && n ? o.분기매출 / 3 / n : null; };
+  const rows = L.filter((o) => o.분기매출).slice(0, 15);
+  if (hi) for (const o of L) if (hi.test(o.업종) && !rows.includes(o) && o.분기매출) rows.push(o);
+  SEL_SUM = `업종별 추정매출·점포(서울시 상권분석서비스, ${q}, ${t.n}): ` + rows.slice(0, 12).map((o) => `${o.업종} 점포 ${o.유사점포 || o.점포 || "-"}곳·점포당 월 약 ${per(o) ? won(per(o) / 1e4) + "원" : "-"}·폐업률 ${o.폐업률 ?? "-"}%·주고객 ${o.주연령 || "-"}`).join("; ");
+  const tr = (o) => { const p = per(o), we = o.주중 + o.주말 ? o.주말 / (o.주중 + o.주말) * 100 : null; const on = hi && hi.test(o.업종);
+    return `<tr${on ? ' style="background:var(--accent-soft);font-weight:600"' : ""}><td>${esc(o.업종)}</td><td class="num">${o.유사점포 || o.점포 || "-"}</td><td class="num">${p ? won(p / 1e4) : "-"}</td><td class="num">${won(o.분기매출 / 1e4)}</td><td class="num">${o.개업률 ?? "-"} / ${o.폐업률 ?? "-"}%</td><td class="num">${we != null ? we.toFixed(0) + "%" : "-"}</td><td>${esc(o.주연령 || "-")}</td><td>${esc(o.주시간 || "-")}</td></tr>`; };
+  return `<div class="card"><h2>업종별 매출·점포 <span class="muted">${esc(t.n)} · ${q} · 서울시 상권분석서비스 추정</span></h2>
+  ${hi ? `<p class="muted" style="margin:0 0 8px">초록색 줄은 "임대로 들어갈까?"에서 고른 업종(${esc(LEASE_IN.biz)})과 비슷한 업종이에요.</p>` : ""}
+  <div class="scroll"><table><thead><tr><th>업종</th><th class="num">점포</th><th class="num">점포당 월매출</th><th class="num">상권 분기매출</th><th class="num">개업/폐업률</th><th class="num">주말 비중</th><th>주 고객</th><th>매출 많은 시간</th></tr></thead>
+  <tbody>${rows.map(tr).join("")}</tbody></table></div>
+  <div class="note">카드 결제 등을 바탕으로 서울시가 추정한 값이에요. 점포당 월매출 = 상권 분기 매출 ÷ 3 ÷ 점포 수(유사업종 포함)라 실제 가게마다 차이가 매우 커요. 폐업률이 높은 업종은 경쟁이 치열하거나 오래 버티기 어렵다는 신호일 수 있어요. 출처: 서울시 상권분석서비스(서울신용보증재단), 공공누리 1유형.</div></div>`;
+}
+
 function bars(arr, avg, color) {
   const tot = arr.reduce((a, [, v]) => a + v, 0) || 1, mx = Math.max(...arr.map(([, v]) => v / tot * 100), ...(avg || []), 1);
   return `<div style="display:grid;grid-template-columns:auto 1fr auto;gap:4px 8px;align-items:center;font-size:13px">${arr.map(([k, v], i) => {
@@ -1127,6 +1156,7 @@ function pageContext(q) {
   if (AUC && DOC_STATE?.text && DOC_STATE.id === AUC.id) L.push(`★ 사용자가 올린 경매 서류(${DOC_STATE.names})를 AI가 정리한 내용:\n${DOC_STATE.text.slice(0, 2500)}`);
   if (LEASE_SUM) L.push(LEASE_SUM);
   if (FL_SUM) L.push(FL_SUM);
+  if (SEL_SUM) L.push(SEL_SUM);
   if (LAND_SUM) L.push(LAND_SUM);
   if (OFFI_SUM) L.push(OFFI_SUM);
   if (RENT_SUM) L.push(RENT_SUM);
