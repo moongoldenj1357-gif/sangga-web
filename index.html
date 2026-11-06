@@ -66,6 +66,17 @@ select,.tools input{font:inherit;font-size:14px;padding:7px 10px;border:1px soli
 .stage{border:2px solid var(--accent)}
 .danger{background:var(--bad-soft);color:var(--bad);border-radius:10px;padding:12px 14px;margin-top:10px;font-size:14px}
 .danger ul{margin:6px 0 0;padding-left:18px}
+.homeF{display:flex;gap:8px;flex-wrap:wrap}
+.homeF input{flex:1;min-width:220px;padding:14px;font-size:16px;border:1px solid var(--line);border-radius:10px}
+.homeF button{padding:14px 20px;font-size:16px}
+.homeF button.ai{background:#fff;color:var(--accent);border:1px solid var(--accent)}
+.homeF button.ai small{font-size:12px;opacity:.8}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;margin-top:8px}
+.tile{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px;cursor:pointer;position:relative}
+.tile:hover,.door:hover{border-color:var(--accent)}
+.tile b{font-size:16px}.tile p{margin:4px 0 0;color:var(--sub);font-size:13.5px}
+.tile::after{content:"무료";position:absolute;top:12px;right:12px;font-size:11px;font-weight:700;color:var(--accent);background:#e8f2ee;border-radius:6px;padding:2px 6px}
+@media (max-width:520px){.homeF button{flex:1}}
 .doors{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;margin-top:12px}
 .door{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;cursor:pointer;display:flex;flex-direction:column;gap:6px}
 .door:hover{border-color:var(--accent);box-shadow:0 4px 14px rgba(0,0,0,.06)}
@@ -130,26 +141,32 @@ footer{margin-top:40px;font-size:12px;color:var(--sub)}
 <div id="homePanel" hidden>
   <div class="card" style="margin-top:14px;border:2px solid var(--accent)">
     <h2 style="font-size:20px;margin:0 0 4px">어디서, 무엇을 하려고 하세요?</h2>
-    <p class="muted" style="margin:0 0 12px">편하게 적으면 AI가 그 동네·업종에 맞춰 경매 물건, 필요한 건물 용도, 임대와 낙찰 비교, 지원사업까지 정리해 드려요.</p>
-    <form id="homeF" style="display:flex;gap:8px;flex-wrap:wrap" onsubmit="event.preventDefault();homeAsk($('#homeQ').value)">
-      <input id="homeQ" placeholder="예: 홍대 근처에서 10평 정도 경양식집을 해 보고 싶어요" style="flex:1;min-width:220px;padding:14px;font-size:16px;border:1px solid var(--line);border-radius:10px">
-      <button type="submit" style="padding:14px 20px;font-size:16px">AI에게 물어보기</button>
+    <p class="muted" style="margin:0 0 12px">주소·동네·업종·사건번호를 적으면 <b>맞는 화면으로 바로</b> 보여 드려요(무료). 더 궁금한 건 AI에게 물어보세요.</p>
+    <form id="homeF" class="homeF" onsubmit="event.preventDefault();homeGo($('#homeQ').value)">
+      <input id="homeQ" placeholder="예: 홍대 경양식 · 서교동 395-166 · 강남구 상가 경매">
+      <button type="submit">바로 보기</button>
+      <button type="button" class="ai" onclick="homeAsk($('#homeQ').value)">AI에게 묻기 <small>💎1</small></button>
     </form>
     <div class="chips" style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap">
-      <button type="button" class="hq" data-q="홍대 근처에서 10평 정도 경양식집을 해 보고 싶어요. 임대가 나을지 낙찰이 나을지, 뭘 봐야 할지 알려 주세요.">🍝 홍대 10평 경양식집</button>
-      <button type="button" class="hq" data-q="5억 이하로 임대 수익이 나올 만한 서울 상가를 경매로 사고 싶어요.">💰 5억 이하 수익형 상가 낙찰</button>
-      <button type="button" class="hq" data-q="직원 5명이 쓸 20~30평 사무실을 사거나 낙찰받고 싶어요. 성남 분당 쪽으로요.">🏢 분당 30평 사무실</button>
-      <button type="button" class="hq" data-q="경기 남부에서 200평 정도 소규모 제조 공장이나 창고 자리를 찾고 있어요.">🏭 경기 남부 공장·창고</button>
+      <button type="button" class="hgo" data-go="홍대 경양식">🍝 홍대 경양식 상권</button>
+      <button type="button" class="hgo" data-go="서교동 395-166">📍 서교동 395-166 건물</button>
+      <button type="button" class="hgo" data-go="서울 상가 경매 5억 이하">💰 서울 5억 이하 경매 상가</button>
+      <button type="button" class="hgo" data-go="음식점 창업 지원사업">🎁 음식점 창업 지원</button>
     </div>
+    <div id="homeHint"></div>
   </div>
+  <h2 style="font-size:16px;margin:18px 2px 0">무료로 바로 볼 수 있어요</h2>
+  <div class="tiles">
+    <div class="tile" onclick="setMode('addr');$('#addr').focus()"><b>📍 주소로 분석</b><p>건물 용도·실거래 시세·토지 규제·임대료·주변 점포, 월세 조건 점검</p></div>
+    <div class="tile" onclick="setMode('area');$('#areaQ').focus()"><b>🏪 동네·업종 분석</b><p>서울 상권의 유동인구·시간대·연령, 업종별 매출과 점포 수</p></div>
+    <div class="tile" onclick="AUC=null;setMode('auc');loadAuc(1)"><b>🔨 경매·공매 찾기</b><p>서울·경기·인천 상가·사무실·공장 경매와 온비드 공매, 낙찰가 기록</p></div>
+    <div class="tile" onclick="setMode('sup')"><b>🎁 창업 지원사업</b><p>정책자금·교육·컨설팅 등 지금 접수 중인 공고를 지역별로</p></div>
+  </div>
+  <h2 style="font-size:16px;margin:18px 2px 0">목적별로 시작하기</h2>
   <div class="doors">
     <div class="door" onclick="goDoor('invest')"><b>💰 투자로 낙찰받기</b><p>임대 수익이 나는 상가·오피스텔을 경매·공매로. 실거래 시세와 임대료로 수익률을 따져 봐요.</p><span>경매 물건 보기 →</span></div>
     <div class="door" onclick="goDoor('use')"><b>🏢 내가 쓸 곳 찾기</b><p>사무실·가게·공장·창고를 사거나 낙찰받기. 용도와 토지 규제로 그 공간을 쓸 수 있는지 봐요.</p><span>사무실·공장·창고 보기 →</span></div>
     <div class="door" onclick="goDoor('startup')"><b>🏪 창업 자리 찾기</b><p>어느 상권에서, 임대와 낙찰 중 무엇으로? 유동인구·업종별 매출·폐업률부터 월세 점검까지.</p><span>동네·업종 분석하기 →</span></div>
-  </div>
-  <div class="card" style="margin-top:12px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;cursor:pointer" onclick="setMode('sup')">
-    <div><h2 style="font-size:16px;margin:0 0 2px">🎁 창업 지원사업 공고</h2><span class="muted" style="font-size:14px">정책자금·교육·컨설팅 등 지금 접수 중인 공고를 지역별로 — AI 없이 바로 보기</span></div>
-    <span style="color:var(--accent);font-weight:600">공고 보기 →</span>
   </div>
   <div class="card" style="margin-top:12px" id="lhCard">
     <h2 style="font-size:16px;margin:0 0 8px">공공 임대·분양 상가 공고 <span class="muted">LH · 서울·경기·인천 · 시세보다 싼 경우가 많아요</span></h2>
@@ -1177,12 +1194,63 @@ async function openById(id) {
   if (x.item) openAuc(x.item); else alertBox("이 물건은 지금 목록에 없어요(종결·취하 등).");
 }
 
+// ── 첫 화면 "바로 보기": 적은 말을 보고 알맞은 무료 화면으로 보냄 (AI 안 씀) ──────────
+const PLACE_ALIAS = { 홍대: "서교동", 합정: "합정동", 망원: "망원동", 연남: "연남동", 성수: "성수동", 강남: "강남구", 신촌: "창천동", 이태원: "이태원동", 여의도: "여의도동", 분당: "분당구", 판교: "분당구", 일산: "일산", 수원: "수원시", 부천: "부천시", 송도: "연수구", 잠실: "송파구" };
+async function homeGo(text) {
+  const t = String(text || "").trim(), hint = $("#homeHint");
+  if (!t) { $("#homeQ").focus(); return; }
+  hint.innerHTML = "";
+  // 1) 사건번호
+  const cs = t.match(/(\d{4})\s*(타경|-)\s*(\d{1,7})/);
+  if (cs) { AUC = null; AUC_SRC_RESET(); ["#fSido", "#fSgg", "#fCourt", "#fMax", "#fFail"].forEach((id) => $(id).value = ""); $("#fQ").value = `${cs[1]}타경${cs[3]}`; setMode("auc"); loadAuc(1); return; }
+  // 2) 지원사업
+  if (/지원사업|지원금|정책자금|보조금|창업\s*지원|소상공인\s*지원|대출/.test(t)) {
+    const reg = /경기|수원|성남|분당|고양|일산|용인|부천|안양|화성/.test(t) ? "경기" : /인천|송도|부평/.test(t) ? "인천" : "서울";
+    SUP_REG = reg; document.querySelectorAll("#supReg button").forEach((x) => x.classList.toggle("on", x.dataset.r === reg));
+    const kw = t.replace(/지원사업|지원금|지원|사업|공고|서울|경기|인천|에서|하는|하려는|창업|알려\s*줘|찾아\s*줘/g, " ").split(/\s+/).filter((w) => w.length >= 2);
+    $("#supQ").value = ["창업", ...kw].slice(0, 3).join(",");
+    $("#supOut").innerHTML = ""; setMode("sup"); supSearch(); return;
+  }
+  // 3) 지번·도로명 주소 (번지 숫자가 있음)
+  if (/(동|리|가|로|길)\s*(산\s*)?\d+(-\d+)?(\s|$)/.test(t) && !/평|억|만원|명/.test(t)) { AUC = null; setMode("addr"); $("#addr").value = t; run(t); return; }
+  // 4) 경매·공매·매입 쪽
+  const words = t.replace(/[,.!?]/g, " ").split(/\s+/).filter(Boolean);
+  const placeOf = () => {
+    for (const w of words) { const k = Object.keys(PLACE_ALIAS).find((a) => w.startsWith(a)); if (k) return PLACE_ALIAS[k]; }
+    const w = words.find((w) => /^[가-힣]{1,6}(시|구|군|동|읍|면)$/.test(w) && !/^(서울|경기|인천)/.test(w)); return w || "";
+  };
+  if (/경매|낙찰|공매|매입|사고\s*싶|투자|수익|사무실|공장|창고|지식산업/.test(t)) {
+    AUC = null; AUC_SRC_RESET();
+    const office = /사무실|공장|창고|지식산업/.test(t);
+    AUC_GRP = office ? "office" : "main"; document.querySelectorAll("#fGrp button").forEach((x) => x.classList.toggle("on", x.dataset.g === AUC_GRP));
+    $("#fSido").value = /서울/.test(t) ? "11" : /경기|분당|판교|일산|수원|부천/.test(t) ? "41" : /인천|송도/.test(t) ? "28" : "";
+    $("#fSgg").value = ""; $("#fCourt").value = "";
+    const m = t.match(/(\d+)\s*억\s*(이하|아래|미만|까지|안쪽)?/); const mx = m ? [1, 3, 5, 10].find((v) => v >= Number(m[1])) : null;
+    $("#fMax").value = mx ? String(mx) : "";
+    $("#fQ").value = placeOf();
+    setMode("auc"); if (AUC_FACETS) fillSgg(); loadAuc(1);
+    $("#aucHint").innerHTML = `<div class="note" style="margin-top:8px">"${esc(t)}"에 맞춰 ${$("#fQ").value ? `<b>${esc($("#fQ").value)}</b> 주소로 ` : ""}${office ? "사무실·공장·창고" : "상가·근린"} 물건을 골랐어요${mx ? ` (최저가 ${mx}억 이하)` : ""}. 위 조건을 바꿔 더 찾아보세요. 물건마다 AI 판단이 필요하면 <a href="#" onclick="event.preventDefault();homeAsk('${esc(t).replace(/'/g, "")}')">AI에게 묻기(💎1)</a>.</div>`;
+    return;
+  }
+  // 5) 서울 동네 + 업종 → 상권 분석
+  try {
+    const [L, T] = await Promise.all([AREA_LIB(), trdarData()]);
+    const biz = words.filter((w) => L.BIZ_MAP.some(([k]) => k.test(w)));
+    const placeWords = words.filter((w) => !biz.includes(w) && !/^\d|평$|억$|창업|하고|싶|해\s*볼|정도|자리/.test(w)).map((w) => { const k = Object.keys(PLACE_ALIAS).find((a) => w.startsWith(a)); return k && /동$/.test(PLACE_ALIAS[k]) ? k : w; });
+    const hit = L.findTrdar(T, placeWords.join(" "), 1);
+    if (hit.length) { setMode("area"); $("#areaQ").value = placeWords.join(" "); $("#areaB").value = biz.join(" "); areaSearch(); return; }
+  } catch {}
+  // 6) 못 알아들었을 때
+  hint.innerHTML = `<div class="note" style="margin-top:10px">"${esc(t)}"을(를) 어느 화면으로 보낼지 모르겠어요. 이렇게 적어 보세요: <b>지번 주소</b>(서교동 395-166), <b>서울 동네 + 업종</b>(연남동 카페), <b>사건번호</b>(2024타경6942), <b>"OO구 상가 경매"</b>.
+    서울 밖 상권이나 자세한 상담은 <a href="#" onclick="event.preventDefault();homeAsk($('#homeQ').value)">AI에게 묻기(💎1)</a>로 물어보세요.</div>`;
+}
+function AUC_SRC_RESET() { if (typeof AUC_SRC !== "undefined" && AUC_SRC === "onbid") { const b = document.querySelector('#fSrc button[data-s="court"]'); if (b) b.click(); } }
 function goHome() { AUC = null; history.replaceState(null, "", "?"); setMode("home"); window.scrollTo(0, 0); }
 function homeAsk(q) {
   q = String(q || "").trim(); if (!q) { $("#homeQ").focus(); return; }
   $("#chatBtn").click(); chatSend(q);
 }
-document.querySelectorAll(".hq").forEach((b) => b.onclick = () => { $("#homeQ").value = b.dataset.q; homeAsk(b.dataset.q); });
+document.querySelectorAll(".hgo").forEach((b) => b.onclick = () => { $("#homeQ").value = b.dataset.go; homeGo(b.dataset.go); });
 function goDoor(k) {
   if (k === "startup") {
     setMode("area"); $("#areaQ").focus();
