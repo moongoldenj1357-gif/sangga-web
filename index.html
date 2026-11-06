@@ -133,6 +133,10 @@ footer{margin-top:40px;font-size:12px;color:var(--sub)}
     <div class="door" onclick="goDoor('use')"><b>🏢 내가 쓸 곳 찾기</b><p>사무실·가게·공장·창고를 사거나 낙찰받기. 용도와 토지 규제로 그 공간을 쓸 수 있는지 봐요.</p><span>사무실·공장·창고 보기 →</span></div>
     <div class="door" onclick="goDoor('startup')"><b>🏪 창업 자리 찾기</b><p>어느 상권에서, 임대와 낙찰 중 무엇으로? 유동인구·업종별 매출·폐업률부터 월세 점검까지.</p><span>동네·업종 분석하기 →</span></div>
   </div>
+  <div class="card" style="margin-top:12px" id="lhCard">
+    <h2 style="font-size:16px;margin:0 0 8px">공공 임대·분양 상가 공고 <span class="muted">LH · 서울·경기·인천 · 시세보다 싼 경우가 많아요</span></h2>
+    <div id="lhList" class="muted">불러오는 중…</div>
+  </div>
   <div class="card" style="margin-top:12px">
     <h2 style="font-size:16px;margin:0 0 8px">세 길은 모두 "상권 분석"에서 만나요</h2>
     <ol style="margin:0;padding-left:20px;line-height:1.8">
@@ -889,10 +893,26 @@ function setMode(m) {
   document.querySelectorAll(".tabs button").forEach((b) => b.classList.toggle("on", b.dataset.m === (m === "aucDetail" ? "auc" : m)));
   $("#aucPanel").hidden = m !== "auc"; $("#addrPanel").hidden = m !== "addr"; $("#homePanel").hidden = m !== "home"; $("#areaPanel").hidden = m !== "area";
   if (m === "area") $("#out").innerHTML = "";
-  if (m === "home") $("#out").innerHTML = "";
+  if (m === "home") { $("#out").innerHTML = ""; loadLh(); }
   if (m === "auc") { $("#out").innerHTML = ""; if (!$("#aucList").innerHTML) loadAuc(1); else setTimeout(() => window.scrollTo(0, LIST_SCROLL), 0); }
 }
 document.querySelectorAll(".tabs button").forEach((b) => b.onclick = () => { if (b.dataset.m === "auc") { AUC = null; history.replaceState(null, "", "?"); $("#aucHint").innerHTML = ""; } setMode(b.dataset.m); });
+// 첫 화면: LH 상가 공고
+let LH_LOADED = false;
+async function loadLh() {
+  if (LH_LOADED) return; LH_LOADED = true;
+  const box = $("#lhList"); if (!box) return;
+  try {
+    const r = await fetch("/api/support?lh=1"), x = await r.json();
+    if (!r.ok) throw new Error(x.오류 || "공고를 불러오지 못했어요");
+    const L = x.공고 || [];
+    box.classList.remove("muted");
+    box.innerHTML = (L.length ? `<div class="cards">${L.slice(0, 6).map((g) => `<div data-url="${esc(g.url)}" onclick="window.open(this.dataset.url,'_blank','noopener')" style="cursor:pointer"><b>${esc(g.제목)}</b><small>${esc(g.지역)} · ${esc(g.유형)}${g.상태 ? " · " + esc(g.상태) : ""}${g.마감일 ? " · 마감 " + esc(g.마감일) : ""}</small><small style="color:var(--accent)">LH 공고 보기 ↗</small></div>`).join("")}</div>`
+      : `<p class="muted" style="margin:0">지금 LH에 올라온 서울·경기·인천 상가 공고가 없어요.</p>`) +
+      `<p style="margin:10px 0 0;font-size:13px">지역 공사도 상가 공고를 내요: ${(x.다른곳 || []).map((o) => `<a href="${esc(o.url)}" target="_blank" rel="noopener">${esc(o.기관)}</a>`).join(" · ")}</p>`;
+  } catch (e) { box.innerHTML = `<span class="muted">${esc(e.message)}</span>`; }
+}
+
 function goHome() { AUC = null; history.replaceState(null, "", "?"); setMode("home"); window.scrollTo(0, 0); }
 function homeAsk(q) {
   q = String(q || "").trim(); if (!q) { $("#homeQ").focus(); return; }
