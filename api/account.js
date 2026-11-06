@@ -11,6 +11,7 @@ const PUB_KEY = (process.env.SUPABASE_PUBLISHABLE_KEY ?? "").trim();
 const H = () => ({ apikey: SB_KEY, "Content-Type": "application/json", ...(SB_KEY.startsWith("sb_") ? {} : { Authorization: `Bearer ${SB_KEY}` }) });
 const clip = (s, n) => String(s ?? "").slice(0, n);
 
+export const config = { maxDuration: 60 };   // 기업마당 공고를 여러 쪽 읽느라 10초를 넘길 수 있음
 export default async function handler(req, res) {
   const q = req.query || {};
   if (q.config) {
