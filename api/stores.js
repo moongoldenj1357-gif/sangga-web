@@ -110,6 +110,18 @@ async function flpop(req, res) {
 // ── 추정매출·점포 자료 구조 확인용 (/api/stores?probe=3120104) — 어떤 조회 방식이 되는지 먼저 확인
 async function probe(req, res) {
   const t = String(req.query.probe), Q = await latestQuarter(), out = { 유동인구분기: Q.yq };
+  if (req.query.v === "2") {   // 직장·상주인구: 어떤 순서로 조건을 넣어야 걸러지는지 시험
+    for (const svc of ["VwsmTrdarWrcPopltnQq", "VwsmTrdarRepopQq"]) {
+      const r = {};
+      for (const tail of [t, Q.yq, `${Q.yq}/${t}`, `${t}/${Q.yq}`, `%20/${t}`, String(Number(Q.yq) - 1)]) {
+        const j = await fetch(`http://openapi.seoul.go.kr:8088/${encodeURIComponent(SKEY)}/json/${svc}/1/5/${tail}`, { signal: AbortSignal.timeout(20000) }).then((x) => x.json()).catch((e) => ({ e: e.message }));
+        const B = j[svc] || {};
+        r[tail.replace("%20", "␣")] = { 결과: B.RESULT?.CODE || j.RESULT?.CODE || j.e, 전체: B.list_total_count, 첫줄: B.row?.[0] ? `${B.row[0].STDR_YYQU_CD}/${B.row[0].TRDAR_CD}` : null };
+      }
+      out[svc] = r;
+    }
+    return res.status(200).json(out);
+  }
   for (const svc of ["VwsmTrdarSelngQq", "VwsmTrdarStorQq", "VwsmTrdarWrcPopltnQq", "VwsmTrdarRepopQq"]) {
     const r = {};
     for (const yq of [Q.yq, String(Number(Q.yq) - 1)]) {
