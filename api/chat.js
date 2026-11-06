@@ -189,10 +189,12 @@ async function areaInsight(input, base) {
   if (!cands.length) return { 결과: "서울 상권에서 찾지 못함", 안내: "서울 상권 이름이나 동 이름으로 다시 찾아보세요. 경기·인천은 아직 상권 유동인구·매출 자료가 없어요." };
   const re = input.business ? bizRegex(input.business) : null;
   const one = async (z) => {
-    const [f, s] = await Promise.all([
+    const [f, pp, s] = await Promise.all([
       fetch(`${base}/api/stores?flpop=${z.c}`).then((r) => r.json()).catch(() => null),
+      fetch(`${base}/api/stores?pop=${z.c}`, { signal: AbortSignal.timeout(40000) }).then((r) => r.json()).catch(() => null),
       fetch(`${base}/api/stores?selng=${z.c}`, { signal: AbortSignal.timeout(40000) }).then((r) => r.json()).catch(() => null),
     ]);
+    if (f && pp && !pp.오류) f.인구 = pp;
     const tot = (a) => (a || []).reduce((x, [, v]) => x + v, 0) || 1;
     const fl = f && !f.오류 ? { 하루유동인구: Math.round(f.총 / 91), 서울순위: f.순위, 여성비율: Math.round(f.여 / (f.남 + f.여) * 100) + "%",
       연령: f.연령.map(([k, v]) => `${k} ${(v / tot(f.연령) * 100).toFixed(0)}%`).join(", "), 서울평균연령: f.서울평균?.연령?.join("/"),
