@@ -91,11 +91,46 @@ function pickFl(row) {
   const wd = get(/^(MON|TUES|WED|THUR|THU|FRI|SAT|SUN)_FLPOP_CO$/).map((k) => [DN[k.split("_")[0]], num(row[k])]);
   return { 총: num(row.TOT_FLPOP_CO), 남: num(row.ML_FLPOP_CO), 여: num(row.FML_FLPOP_CO), 연령: age, 시간: tm, 요일: wd };
 }
+// ── 직장인구·상주인구: 분기 조건이 안 먹어서, 앞에서부터 받아 가장 최근 분기만 골라 씀 (최신 분기가 맨 앞에 옴)
+const POPQ = {};
+async function popLatest(svc) {
+  const c = POPQ[svc]; if (c && Date.now() - c.at < 24 * 3600_000) return c;
+  let rows = [], top = null;
+  for (let st = 1; st <= 5001; st += 1000) {
+    const j = await fetch(`http://openapi.seoul.go.kr:8088/${encodeURIComponent(SKEY)}/json/${svc}/${st}/${st + 999}`, { signal: AbortSignal.timeout(25000) }).then((x) => x.json());
+    const page = j[svc]?.row || [];
+    if (!page.length) break;
+    if (!top) top = page.reduce((m, r) => (String(r.STDR_YYQU_CD) > m ? String(r.STDR_YYQU_CD) : m), "");
+    const mine = page.filter((r) => String(r.STDR_YYQU_CD) === top);
+    rows = rows.concat(mine);
+    if (mine.length < page.length) break;   // 다음 분기 자료가 섞이기 시작하면 멈춤
+  }
+  const by = new Map(rows.map((r) => [String(r.TRDAR_CD), r]));
+  return (POPQ[svc] = { yq: top, by, at: Date.now() });
+}
+async function popFor(code) {
+  try {
+    const [W, R] = await Promise.all([popLatest("VwsmTrdarWrcPopltnQq"), popLatest("VwsmTrdarRepopQq")]);
+    const w = W.by.get(code), r = R.by.get(code);
+    const AG = ["10", "20", "30", "40", "50", "60_ABOVE"], NM = ["10대", "20대", "30대", "40대", "50대", "60대 이상"];
+    // 서울 상권들의 '직장인구 ÷ 상주인구' 중간값 (점심형/동네형 비교용)
+    const ratios = [...W.by.entries()].map(([k, x]) => { const y = R.by.get(k); return y && num(y.TOT_REPOP_CO) ? num(x.TOT_WRC_POPLTN_CO) / num(y.TOT_REPOP_CO) : null; }).filter((v) => v != null).sort((a, b) => a - b);
+    return {
+      직장: w ? { 분기: W.yq, 총: num(w.TOT_WRC_POPLTN_CO), 여: num(w.FML_WRC_POPLTN_CO), 연령: AG.map((a, i) => [NM[i], num(w[`AGRDE_${a}_WRC_POPLTN_CO`])]) } : null,
+      상주: r ? { 분기: R.yq, 총: num(r.TOT_REPOP_CO), 여: num(r.FML_REPOP_CO), 가구: num(r.TOT_HSHLD_CO), 아파트가구: num(r.APT_HSHLD_CO), 연령: AG.map((a, i) => [NM[i], num(r[`AGRDE_${a}_REPOP_CO`])]) } : null,
+      서울직주비중간: ratios.length ? Math.round(ratios[ratios.length >> 1] * 100) / 100 : null,
+    };
+  } catch (e) { return { 오류: e.message }; }
+}
+
 async function flpop(req, res) {
   if (!SKEY) return res.status(500).json({ 오류: "Vercel 환경변수 SEOUL_DATA_KEY가 없어요." });
   const code = String(req.query.flpop);
   const Q = await latestQuarter();
-  if (req.query.debug) return res.status(200).json({ 분기: Q.yq, 행수: Q.rows.length, 항목: Object.keys(Q.rows[0] || {}) });
+  if (req.query.debug) {
+    const [W, R] = await Promise.all([popLatest("VwsmTrdarWrcPopltnQq"), popLatest("VwsmTrdarRepopQq")]).catch(() => [{}, {}]);
+    return res.status(200).json({ 분기: Q.yq, 행수: Q.rows.length, 직장인구: { 분기: W.yq, 상권수: W.by?.size }, 상주인구: { 분기: R.yq, 상권수: R.by?.size } });
+  }
   const row = Q.rows.find((r) => String(r.TRDAR_CD) === code);
   if (!row) return res.status(404).json({ 오류: `상권 ${code}의 ${Q.yq} 유동인구 자료가 없어요.` });
   const me = pickFl(row);
@@ -104,7 +139,8 @@ async function flpop(req, res) {
   const avgShare = (sel) => me[sel].map((_, i) => Math.round(all.reduce((a, x) => a + share(x[sel], i), 0) / all.length * 1000) / 10);
   const rank = all.filter((x) => x.총 > me.총).length + 1;
   res.setHeader("Cache-Control", "s-maxage=604800");
-  return res.status(200).json({ 분기: Q.yq, 상권: row.TRDAR_CD_NM, 구분: row.TRDAR_SE_CD_NM, ...me, 서울평균: { 연령: avgShare("연령"), 시간: avgShare("시간"), 요일: avgShare("요일") }, 순위: `${rank}/${all.length}` });
+  const pop = await popFor(code);
+  return res.status(200).json({ 분기: Q.yq, 상권: row.TRDAR_CD_NM, 구분: row.TRDAR_SE_CD_NM, ...me, 인구: pop, 서울평균: { 연령: avgShare("연령"), 시간: avgShare("시간"), 요일: avgShare("요일") }, 순위: `${rank}/${all.length}` });
 }
 
 // ── 추정매출·점포 자료 구조 확인용 (/api/stores?probe=3120104) — 어떤 조회 방식이 되는지 먼저 확인
