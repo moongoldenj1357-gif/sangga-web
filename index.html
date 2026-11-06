@@ -55,7 +55,8 @@ select,.tools input{font:inherit;font-size:14px;padding:7px 10px;border:1px soli
 .tabs button{background:none;color:var(--sub);border-radius:10px 10px 0 0;padding:10px 16px;font-size:15px}
 .tabs button.on{background:var(--card);color:var(--accent);border:1px solid var(--line);border-bottom-color:var(--card);margin-bottom:-1px}
 #fGrp button{background:#fff;color:var(--ink);border:1px solid var(--line);padding:7px 12px;font-size:14px;font-weight:500}
-#fGrp button.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+#fGrp button.on,#fSrc button.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+#fSrc button{font-size:15px;padding:8px 16px;font-weight:600}
 .auc{display:grid;gap:8px;margin-top:10px}
 .auc .it{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;cursor:pointer;display:grid;grid-template-columns:1fr auto;gap:4px 12px}
 .auc .it:hover{border-color:var(--accent)}
@@ -170,7 +171,7 @@ footer{margin-top:40px;font-size:12px;color:var(--sub)}
     <select id="fCourt"><option value="">법원 전체</option></select>
     <select id="fMax"><option value="">최저가 전체</option><option value="1">1억 이하</option><option value="3">3억 이하</option><option value="5">5억 이하</option><option value="10">10억 이하</option></select>
     <select id="fFail"><option value="">유찰 전체</option><option value="1">유찰 1회+</option><option value="2">유찰 2회+</option><option value="3">유찰 3회+</option></select>
-    <select id="fSort"><option value="date">매각기일 가까운 순</option><option value="price">최저가 낮은 순</option><option value="fail">유찰 많은 순</option><option value="new">새로 나온 순</option></select>
+    <select id="fSort"><option value="date">마감일 가까운 순</option><option value="price">최저가 낮은 순</option><option value="fail">유찰 많은 순</option><option value="new">새로 나온 순</option></select>
     <input id="fQ" placeholder="사건번호(예: 2024타경6942) 또는 주소" style="flex:1;min-width:140px">
   </div>
   <div class="note" style="display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap;margin-top:10px">
@@ -984,7 +985,7 @@ async function loadAuc(page) {
         <div><b>${esc(it.print_case_no)}${it.item_no > 1 ? ` (${it.item_no})` : ""}</b> <span class="pill ${it.fail_count >= 2 ? "mid" : "ok"}" title="법원 용도: ${esc(it.usage || "")}">${({ shop: "상가", officetel: "오피스텔", office: "사무실·업무", factory: "공장·지산", warehouse: "창고", etc: "기타" })[it.category] || esc(it.usage || "용도 미상")}</span>
           <div>${esc(it.lot_address || it.address || "")}${it.building_name ? " · " + esc(it.building_name) : ""}</div>
           <div class="muted">${caseMode ? `<b style="color:var(--accent)">${esc(it.court_name || "")}</b>` : esc(it.court_name || "")} ${esc(it.dept_name || "")}${it.active === false ? " · <b>종료·지난 물건</b>" : ""} · ${it.src === "onbid" ? "입찰마감" : "매각기일"} ${esc(it.sale_date || "-")} ${dday(it.sale_date)}${it.areas ? " · " + esc(String(it.areas).slice(0, 40)) : ""}</div></div>
-        <div class="pr"><div class="muted">감정가 ${wonW(it.appraised)}</div><div class="big">${wonW(it.min_price)}</div>
+        <div class="pr"><div class="muted">감정가 ${it.appraised ? wonW(it.appraised) : "비공개"}</div><div class="big">${it.min_price ? wonW(it.min_price) : esc(it.min_price_text || "비공개")}</div>
           <div class="muted">${it.appraised ? Math.round(it.min_price / it.appraised * 100) + "%" : ""} · 유찰 ${it.fail_count ?? 0}회</div>${riskInfo(it).high ? `<span class="pill no">⚠ 권리관계 확인 필수</span>` : ""}</div></div>`).join("") || (caseMode ? "" : `<div class="card muted">조건에 맞는 물건이 없어요.</div>`)) + `</div>` +
       `<div class="tools" style="justify-content:center;margin-top:12px">${page > 1 ? `<button type="button" data-p="${page - 1}" style="padding:8px 14px">이전</button>` : ""}${page < pages ? `<button type="button" data-p="${page + 1}" style="padding:8px 14px">다음</button>` : ""}</div>`;
     $("#aucList").querySelectorAll("[data-p]").forEach((b) => b.onclick = () => loadAuc(+b.dataset.p));
