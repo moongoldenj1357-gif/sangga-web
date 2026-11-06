@@ -1,9 +1,9 @@
 // 계정·공유·공고 모음 (api 파일 수를 줄이려고 합침)
 //  GET  ?config=1            → 화면 로그인용 Supabase 주소와 공개 키
 //  POST (body)               → AI 답변 공유 링크 만들기 /  GET ?id= → 공유된 답변 읽기
-//  GET  ?support=1&lh=1      → LH 상가 공고 /  GET ?support=1&region=&q= → 기업마당 지원사업
+//  GET  ?support=1&lh=1      → LH 상가 공고 /  GET ?support=1&region=&q=&limit=&orgs=1 → 기업마당 지원사업(+공식 기관)
 import { randomBytes } from "node:crypto";
-import { findPrograms } from "../lib/support.js";
+import { findPrograms, SUPPORT } from "../lib/support.js";
 import { findLhShops } from "../lib/lh.js";
 const SB_URL = (process.env.SUPABASE_URL ?? "").trim().replace(/\/+$/, "").replace(/\/rest\/v1$/, "");
 const SB_KEY = process.env.SUPABASE_SECRET_KEY ?? "";
@@ -22,7 +22,10 @@ export default async function handler(req, res) {
     res.setHeader("Cache-Control", "s-maxage=3600");
     try {
       if (q.lh) return res.status(200).json(await findLhShops({ region: q.region || "" }));
-      return res.status(200).json(await findPrograms({ region: q.region || "", keywords: String(q.q || "").split(",").filter(Boolean), field: q.field || "" }));
+      const x = await findPrograms({ region: q.region || "", keywords: String(q.q || "").split(",").map((s) => s.trim()).filter(Boolean), field: q.field || "", limit: Math.min(Number(q.limit) || 8, 40) });
+      if (q.orgs) { const sd = String(q.region || "").slice(0, 2); x.기관 = SUPPORT.filter((o) => !o.sido || !sd || o.sido === sd); }
+      delete x._sampleFields;
+      return res.status(200).json(x);
     } catch (e) { return res.status(500).json({ 오류: e.message }); }
   }
 

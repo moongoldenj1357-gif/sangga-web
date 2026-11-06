@@ -1,15 +1,14 @@
-import { findPrograms } from "../lib/support.js";
+import { findPrograms, SUPPORT } from "../lib/support.js";
 import { findTrdar, bizRegex } from "../lib/area.js";
 import { findLhShops } from "../lib/lh.js";
 // AI 상담 채팅 — 화면에 띄운 자료를 근거로 Claude(Haiku)가 답함
 import { createHash } from "node:crypto";
-import { isAdmin } from "../lib/admin.js";
+import { isAdmin, whoIs, dailyLimit } from "../lib/admin.js";
 
 const API_KEY = process.env.ANTHROPIC_API_KEY ?? "";
 const MODEL = process.env.CHAT_MODEL || "claude-haiku-5-5";
 const SB_URL = (process.env.SUPABASE_URL ?? "").trim().replace(/\/+$/, "").replace(/\/rest\/v1$/, "");
 const SB_KEY = process.env.SUPABASE_SECRET_KEY ?? "";
-const PER_VISITOR = Number(process.env.CHAT_DAILY_PER_VISITOR || 10);
 const SITE_TOTAL = Number(process.env.CHAT_DAILY_TOTAL || 300);
 
 const SYSTEM = `당신은 상권 분석 사이트 "좋은목"의 AI 상담원입니다. 사용자는 세 부류입니다: (1) 상가를 투자용으로 낙찰받으려는 사람 (2) 자기가 쓸 사무실·가게·공장을 찾는 사람 (3) 창업하려는데 어디서, 낙찰과 임대 중 어떤 방법으로 할지 고민하는 사람. 셋 모두 결국 "이 자리(목)가 좋은가"를 판단하려는 사람입니다.
@@ -88,20 +87,6 @@ const TOOLS = [
   { name: "startup_support",
     description: "소상공인 창업 자금·보증·정부지원·교육·컨설팅 공식 기관 목록을 돌려준다.",
     input_schema: { type: "object", properties: { sido: { type: "string", enum: ["서울", "경기", "인천", "모름"] }, topic: { type: "string", description: "자금, 보증, 교육, 상권, 전체 등" } } } },
-];
-
-const SUPPORT = [
-  { 분야: "정책자금(융자)", 기관: "소상공인시장진흥공단 소상공인 정책자금", url: "https://ols.semas.or.kr", 설명: "창업·운영자금 융자. 해마다 공고·자격·한도가 바뀌니 공고 확인" },
-  { 분야: "지원사업 통합 신청", 기관: "소상공인24", url: "https://www.sbiz24.kr", 설명: "소상공인 지원사업(교육·컨설팅·정책자금 등) 통합 신청 창구" },
-  { 분야: "창업교육·컨설팅", 기관: "소상공인시장진흥공단", url: "https://www.semas.or.kr", 설명: "신사업창업사관학교, 소상공인 교육·컨설팅 안내" },
-  { 분야: "상권분석", 기관: "소상공인 상권정보시스템", url: "https://sg.sbiz.or.kr", 설명: "업종별 점포 수·매출 추정 등 상권 분석" },
-  { 분야: "정부 지원사업 공고 검색", 기관: "기업마당", url: "https://www.bizinfo.go.kr", 설명: "중앙부처·지자체 지원사업 공고 모음" },
-  { 분야: "창업 지원(기술·청년)", 기관: "K-Startup 창업지원포털", url: "https://www.k-startup.go.kr", 설명: "예비창업패키지 등 창업 지원사업 공고" },
-  { 분야: "보증(서울)", 기관: "서울신용보증재단", url: "https://www.seoulshinbo.co.kr", 설명: "서울 소상공인 보증·자영업지원센터 컨설팅", sido: "서울" },
-  { 분야: "보증(경기)", 기관: "경기신용보증재단", url: "https://www.gcgf.or.kr", 설명: "경기 소상공인 보증·경영 지원", sido: "경기" },
-  { 분야: "지역 소상공인 지원(경기)", 기관: "경기도 소상공인 지원 안내(경기도청)", url: "https://www.gg.go.kr", 설명: "경기도·시군 소상공인 지원사업 공고", sido: "경기" },
-  { 분야: "보증(인천)", 기관: "인천신용보증재단", url: "https://www.icsinbo.or.kr", 설명: "인천 소상공인 보증·경영 지원", sido: "인천" },
-  { 분야: "지역 소상공인 지원(서울)", 기관: "서울시 소상공인 지원 안내(서울시 경제분야)", url: "https://news.seoul.go.kr/economy/small-business-supports", 설명: "서울시 자영업 지원·자금·교육·컨설팅 안내", sido: "서울" },
 ];
 
 const BUSINESS_HINT = [
@@ -230,12 +215,14 @@ export default async function handler(req, res) {
 
   // 하루 사용 횟수 확인
   const ip = String(req.headers["x-forwarded-for"] || req.socket?.remoteAddress || "unknown").split(",")[0].trim();
-  const client = hash(ip + "|" + SB_KEY.slice(-12));
+  const me = await whoIs(req);
+  const client = me.id ? hash("u|" + me.id) : hash(ip + "|" + SB_KEY.slice(-12));   // 회원은 회원 단위, 비회원은 접속 단위
   let used;
   try { used = await bump(client); } catch (e) { return res.status(500).json({ 오류: e.message }); }
-  const admin = isAdmin(req);
+  const admin = isAdmin(req) || me.tier === "admin";
+  const PER_VISITOR = dailyLimit(me.tier, "chat");
   if (!admin && used.total > SITE_TOTAL) return res.status(429).json({ 오류: "오늘 사이트 전체 AI 상담 한도가 찼어요. 내일 다시 이용해 주세요.", 남은횟수: 0 });
-  if (!admin && used.mine > PER_VISITOR) return res.status(429).json({ 오류: `AI 상담은 하루 ${PER_VISITOR}번까지예요. 내일 다시 이용해 주세요.`, 남은횟수: 0 });
+  if (!admin && used.mine > PER_VISITOR) return res.status(429).json({ 오류: me.id ? `AI 상담은 하루 ${PER_VISITOR}번까지예요. 내일 다시 이용해 주세요.` : `로그인 없이 AI 상담은 하루 ${PER_VISITOR}번까지예요. 카카오로 로그인하면 하루 ${dailyLimit("free", "chat")}번까지 쓸 수 있어요.`, 남은횟수: 0, 로그인권유: !me.id });
 
   const context = clip(body.context, 9000) || "(아직 조회한 주소가 없습니다)";
   try {

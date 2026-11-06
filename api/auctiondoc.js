@@ -1,7 +1,7 @@
 // 경매 물건의 현황조사서를 법원경매정보에서 한 건만 가져와 AI가 쉬운 말로 정리 (개인 이름 제거)
 // 원본은 저장하지 않고 정리본만 auction_docs에 저장해 다음 사람은 법원에 다시 접속하지 않음
 import { createHash } from "node:crypto";
-import { isAdmin } from "../lib/admin.js";
+import { isAdmin, whoIs, dailyLimit } from "../lib/admin.js";
 export const config = { maxDuration: 60 };
 
 const BASE = "https://www.courtauction.go.kr";
@@ -11,7 +11,6 @@ const SB_URL = (process.env.SUPABASE_URL ?? "").trim().replace(/\/+$/, "").repla
 const SB_KEY = process.env.SUPABASE_SECRET_KEY ?? "";
 const API_KEY = process.env.ANTHROPIC_API_KEY ?? "";
 const MODEL = process.env.DOC_MODEL || process.env.CHAT_MODEL || "claude-haiku-5-5";
-const PER_VISITOR = Number(process.env.AUCDOC_DAILY_PER_VISITOR || 10);
 const COURT_DAILY_CAP = Number(process.env.AUCDOC_DAILY_CAP || 150);   // 하루 법원 접속 상한
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const hash = (s) => createHash("sha256").update(s).digest("hex").slice(0, 32);
@@ -88,9 +87,11 @@ export default async function handler(req, res) {
     }
     // 사용 한도 (저장된 정리가 없을 때만)
     const ip = String(req.headers["x-forwarded-for"] || req.socket?.remoteAddress || "unknown").split(",")[0].trim();
-    const used = await sb("POST", "rpc/bump_chat", { p_client: hash("aucdoc|" + ip + "|" + SB_KEY.slice(-12)) });
+    const me = await whoIs(req);
+    const used = await sb("POST", "rpc/bump_chat", { p_client: me.id ? hash("aucdoc|u|" + me.id) : hash("aucdoc|" + ip + "|" + SB_KEY.slice(-12)) });
     const u = Array.isArray(used) ? used[0] : used;
-    const admin = isAdmin(req);
+    const admin = isAdmin(req) || me.tier === "admin";
+    const PER_VISITOR = dailyLimit(me.tier, "aucdoc");
     if (!admin && u.mine > PER_VISITOR) return res.status(429).json({ 오류: `서류 자동 정리는 하루 ${PER_VISITOR}번까지예요.` });
     const today = new Date(Date.now() + 9 * 3600_000).toISOString().slice(0, 10);
     const cnt = await fetch(`${SB_URL}/rest/v1/auction_docs?created_at=gte.${today}T00:00:00%2B09:00&select=id`, { headers: { apikey: SB_KEY, Prefer: "count=exact", Range: "0-0", ...(SB_KEY.startsWith("sb_") ? {} : { Authorization: `Bearer ${SB_KEY}` }) } });
