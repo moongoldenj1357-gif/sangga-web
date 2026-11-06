@@ -114,16 +114,19 @@ async function popFor(code) {
     // 서울 상권들의 '직장인구 ÷ 상주인구' 중간값 (점심형/동네형 비교용)
     const ratios = [...W.by.entries()].map(([k, x]) => { const y = R.by.get(k); return y && num(y.TOT_REPOP_CO) ? num(x.TOT_WRC_POPLTN_CO) / num(y.TOT_REPOP_CO) : null; }).filter((v) => v != null).sort((a, b) => a - b);
     // 유동인구 ÷ (직장+상주) — 바깥에서 놀러·쇼핑 오는 사람이 얼마나 많은지 (서울 상권 중간값과 비교)
-    let 방문비 = null, 서울방문비중간 = null;
+    let 방문비 = null, 서울방문비중간 = null, 방문백분위 = null;
     try {
       const F = await latestQuarter(), day = (r) => num(r.TOT_FLPOP_CO) / 91;
       const vs = F.rows.map((f) => { const k = String(f.TRDAR_CD), a = W.by.get(k), b = R.by.get(k); const base = num(a?.TOT_WRC_POPLTN_CO) + num(b?.TOT_REPOP_CO); return base > 0 ? [k, day(f) / base] : null; }).filter(Boolean);
       const sorted = vs.map(([, v]) => v).sort((x, y) => x - y);
       서울방문비중간 = sorted.length ? Math.round(sorted[sorted.length >> 1] * 100) / 100 : null;
       const me = vs.find(([k]) => k === code); 방문비 = me ? Math.round(me[1] * 100) / 100 : null;
+      if (me) 방문백분위 = Math.round(sorted.filter((v) => v < me[1]).length / sorted.length * 100);
     } catch {}
+    const myR = w && r && num(r.TOT_REPOP_CO) ? num(w.TOT_WRC_POPLTN_CO) / num(r.TOT_REPOP_CO) : null;
+    const 직장백분위 = myR != null && ratios.length ? Math.round(ratios.filter((v) => v < myR).length / ratios.length * 100) : null;
     return {
-      방문비, 서울방문비중간,
+      방문비, 서울방문비중간, 방문백분위, 직장백분위,
       직장: w ? { 분기: String(w.STDR_YYQU_CD), 총: num(w.TOT_WRC_POPLTN_CO), 여: num(w.FML_WRC_POPLTN_CO), 연령: AG.map((a, i) => [NM[i], num(w[`AGRDE_${a}_WRC_POPLTN_CO`])]) } : null,
       상주: r ? { 분기: String(r.STDR_YYQU_CD), 총: num(r.TOT_REPOP_CO), 여: num(r.FML_REPOP_CO), 가구: num(r.TOT_HSHLD_CO), 아파트가구: num(r.APT_HSHLD_CO), 연령: AG.map((a, i) => [NM[i], num(r[`AGRDE_${a}_REPOP_CO`])]) } : null,
       서울직주비중간: ratios.length ? Math.round(ratios[ratios.length >> 1] * 100) / 100 : null,
