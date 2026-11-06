@@ -108,7 +108,7 @@ footer{margin-top:40px;font-size:12px;color:var(--sub)}
   <h1 style="cursor:pointer" onclick="goHome()">좋은목 <span style="font-size:15px;font-weight:500;color:var(--sub)">상권으로 판단하는 낙찰·임대·창업</span></h1>
   <p>사든, 빌리든, 차리든 — 먼저 목을 보세요. 서울·경기·인천의 실거래·임대료·공실률·주변 점포·경매 물건을 한 화면에서 봅니다.</p>
 </header>
-<nav class="tabs"><button type="button" data-m="home">처음</button><button type="button" data-m="auc">경매 물건 찾기</button><button type="button" data-m="addr">주소로 분석</button></nav>
+<nav class="tabs"><button type="button" data-m="home">처음</button><button type="button" data-m="area">동네·업종 분석</button><button type="button" data-m="auc">경매 물건 찾기</button><button type="button" data-m="addr">주소로 분석</button></nav>
 <div id="homePanel" hidden>
   <div class="card" style="margin-top:14px;border:2px solid var(--accent)">
     <h2 style="font-size:20px;margin:0 0 4px">어디서, 무엇을 하려고 하세요?</h2>
@@ -127,7 +127,7 @@ footer{margin-top:40px;font-size:12px;color:var(--sub)}
   <div class="doors">
     <div class="door" onclick="goDoor('invest')"><b>💰 투자로 낙찰받기</b><p>임대 수익이 나는 상가·오피스텔을 경매로. 실거래 시세와 임대료로 수익률을 따져 봐요.</p><span>경매 물건 보기 →</span></div>
     <div class="door" onclick="goDoor('use')"><b>🏢 내가 쓸 곳 찾기</b><p>사무실·가게·공장·창고를 사거나 낙찰받기. 용도와 토지 규제로 그 공간을 쓸 수 있는지 봐요.</p><span>사무실·공장·창고 보기 →</span></div>
-    <div class="door" onclick="goDoor('startup')"><b>🏪 창업 자리 찾기</b><p>어느 상권에서, 임대와 낙찰 중 무엇으로? 월세 수준·경쟁 점포·업종 가능 여부·지원사업까지.</p><span>마음에 둔 자리 점검하기 →</span></div>
+    <div class="door" onclick="goDoor('startup')"><b>🏪 창업 자리 찾기</b><p>어느 상권에서, 임대와 낙찰 중 무엇으로? 유동인구·업종별 매출·폐업률부터 월세 점검까지.</p><span>동네·업종 분석하기 →</span></div>
   </div>
   <div class="card" style="margin-top:12px">
     <h2 style="font-size:16px;margin:0 0 8px">세 길은 모두 "상권 분석"에서 만나요</h2>
@@ -137,6 +137,15 @@ footer{margin-top:40px;font-size:12px;color:var(--sub)}
       <li><b>할 일 정하기</b> — 그 공간에서 가능한 업종, 필요한 용도변경, 창업 지원사업</li>
     </ol>
   </div>
+</div>
+<div id="areaPanel" hidden>
+  <form id="areaF" class="lsf" style="margin-top:14px;grid-template-columns:2fr 1.3fr auto" onsubmit="event.preventDefault();areaSearch()">
+    <label>동네·상권·역 이름 (서울)<input id="areaQ" placeholder="예: 홍대, 연남동, 성수동, 강남역"></label>
+    <label>하려는 업종 (선택)<input id="areaB" placeholder="예: 경양식, 카페, 고깃집"></label>
+    <button type="submit">상권 찾기</button>
+  </form>
+  <p class="muted" style="margin:6px 0 0;font-size:13px">서울시 상권분석서비스의 상권 1,650곳 자료예요. 경기·인천은 아직 이 자료가 없어서, 마음에 둔 자리의 지번 주소로 "주소로 분석"을 이용해 주세요.</p>
+  <div id="areaOut"></div>
 </div>
 <div id="aucPanel" hidden>
   <div class="chips" id="fGrp" style="margin-top:14px">
@@ -551,11 +560,11 @@ async function loadSelng(t, d) {
     box.innerHTML = selngCard(t, x);
   } catch (e) { box.innerHTML = `<div class="card"><h2>업종별 매출·점포</h2><div class="err">${esc(e.message)}</div></div>`; }
 }
-function selngCard(t, x) {
+function selngCard(t, x, hiRe, hiName) {
   const q = `${String(x.분기).slice(0, 4)}년 ${String(x.분기).slice(4)}분기`;
   const L = x.업종 || [];
   if (!L.length) return `<div class="card"><h2>업종별 매출·점포</h2><p class="muted">${esc(t.n)} 상권의 ${q} 매출 자료가 없어요.</p></div>`;
-  const hi = BIZ_SEOUL[LEASE_IN?.biz] || null;
+  const hi = hiRe || BIZ_SEOUL[LEASE_IN?.biz] || null;
   const per = (o) => { const n = o.유사점포 || o.점포; return o.분기매출 && n ? o.분기매출 / 3 / n : null; };
   const rows = L.filter((o) => o.분기매출).slice(0, 15);
   if (hi) for (const o of L) if (hi.test(o.업종) && !rows.includes(o) && o.분기매출) rows.push(o);
@@ -563,10 +572,53 @@ function selngCard(t, x) {
   const tr = (o) => { const p = per(o), we = o.주중 + o.주말 ? o.주말 / (o.주중 + o.주말) * 100 : null; const on = hi && hi.test(o.업종);
     return `<tr${on ? ' style="background:var(--accent-soft);font-weight:600"' : ""}><td>${esc(o.업종)}</td><td class="num">${o.유사점포 || o.점포 || "-"}</td><td class="num">${p ? won(p / 1e4) : "-"}</td><td class="num">${won(o.분기매출 / 1e4)}</td><td class="num">${o.개업률 ?? "-"} / ${o.폐업률 ?? "-"}%</td><td class="num">${we != null ? we.toFixed(0) + "%" : "-"}</td><td>${esc(o.주연령 || "-")}</td><td>${esc(o.주시간 || "-")}</td></tr>`; };
   return `<div class="card"><h2>업종별 매출·점포 <span class="muted">${esc(t.n)} · ${q} · 서울시 상권분석서비스 추정</span></h2>
-  ${hi ? `<p class="muted" style="margin:0 0 8px">초록색 줄은 "임대로 들어갈까?"에서 고른 업종(${esc(LEASE_IN.biz)})과 비슷한 업종이에요.</p>` : ""}
+  ${hi ? `<p class="muted" style="margin:0 0 8px">초록색 줄은 ${hiName ? `찾는 업종(${esc(hiName)})` : `"임대로 들어갈까?"에서 고른 업종(${esc(LEASE_IN?.biz || "")})`}과 비슷한 업종이에요.</p>` : ""}
   <div class="scroll"><table><thead><tr><th>업종</th><th class="num">점포</th><th class="num">점포당 월매출</th><th class="num">상권 분기매출</th><th class="num">개업/폐업률</th><th class="num">주말 비중</th><th>주 고객</th><th>매출 많은 시간</th></tr></thead>
   <tbody>${rows.map(tr).join("")}</tbody></table></div>
   <div class="note">카드 결제 등을 바탕으로 서울시가 추정한 값이에요. 점포당 월매출 = 상권 분기 매출 ÷ 3 ÷ 점포 수(유사업종 포함)라 실제 가게마다 차이가 매우 커요. 폐업률이 높은 업종은 경쟁이 치열하거나 오래 버티기 어렵다는 신호일 수 있어요. 출처: 서울시 상권분석서비스(서울신용보증재단), 공공누리 1유형.</div></div>`;
+}
+
+// ── 동네·업종 분석 (주소 없이 상권 이름으로) — lib/area.js를 화면에서도 같이 씀
+const AREA_LIB = () => (window._areaLib ||= import("/lib/area.js"));
+async function areaSearch() {
+  const q = $("#areaQ").value.trim(), b = $("#areaB").value.trim(), box = $("#areaOut");
+  if (!q) { $("#areaQ").focus(); return; }
+  box.innerHTML = `<div class="card muted" style="margin-top:12px">상권을 찾는 중…</div>`;
+  try {
+    const [L, T] = await Promise.all([AREA_LIB(), trdarData()]);
+    const c = L.findTrdar(T, q, 8);
+    if (!c.length) { box.innerHTML = `<div class="card" style="margin-top:12px">"${esc(q)}"와 맞는 서울 상권을 못 찾았어요. 역 이름이나 동 이름(예: 연남동, 강남역)으로 다시 찾아보세요.</div>`; return; }
+    if (c.length === 1) return openArea(c[0].c, b);
+    box.innerHTML = `<div class="card" style="margin-top:12px"><h2 style="font-size:16px">어느 상권을 볼까요? <span class="muted">맨 위 상권을 먼저 보여 드려요</span></h2><div style="display:flex;flex-wrap:wrap;gap:6px">${c.map((z) => `<button type="button" class="hq" onclick="openArea('${z.c}', $('#areaB').value, true)">${esc(z.n)} <span class="muted" style="font-size:12px">${esc(z.t)} · ${esc(z.g)} ${esc(z.d)}</span></button>`).join("")}</div></div>`;
+    openArea(c[0].c, b, true);
+  } catch (e) { box.innerHTML = `<div class="err" style="margin-top:12px">${esc(e.message)}</div>`; }
+}
+async function openArea(code, biz, keepList) {
+  setMode("area"); AUC = null;
+  const T = await trdarData(), z = T.find((x) => x.c === String(code)); if (!z) return;
+  if (biz && !$("#areaB").value) $("#areaB").value = biz;
+  const L = await AREA_LIB(), re = biz ? L.bizRegex(biz) : null;
+  const box = $("#areaOut");
+  const list = keepList ? (box.querySelector(".card")?.outerHTML || "") : "";
+  const tok = (window._areaTok = (window._areaTok || 0) + 1);
+  box.innerHTML = list + `<div class="card stage" style="margin-top:12px"><h2>${esc(z.n)} <span class="muted">${esc(z.t)} · ${esc(z.g)} ${esc(z.d)}</span></h2>
+    <div class="tools" style="margin-top:6px"><button type="button" onclick="areaAuctions('${esc(z.g)}','${esc(z.d)}')">이 동네 경매 물건</button>
+    <button type="button" style="background:#fff;color:var(--accent);border:1px solid var(--accent)" onclick="$('#chatBtn').click();chatSend('${esc(z.n)} 상권에서 ${esc(biz || "창업")} 해 볼까요? 유동인구랑 업종 매출 보고 판단 포인트 알려주세요.')">AI에게 이 상권 물어보기</button></div></div>
+    <div id="aFl"><div class="card muted">유동인구를 불러오는 중…</div></div><div id="aSel"><div class="card muted">업종별 매출·점포를 불러오는 중… (처음엔 20초쯤)</div></div>`;
+  window.scrollTo({ top: box.offsetTop - 10, behavior: "smooth" });
+  const [f, s] = await Promise.all([
+    fetch(`/api/stores?flpop=${z.c}`).then((r) => r.json()).catch((e) => ({ 오류: e.message })),
+    fetch(`/api/stores?selng=${z.c}`).then((r) => r.json()).catch((e) => ({ 오류: e.message })),
+  ]);
+  if (tok !== window._areaTok) return;
+  $("#aFl").innerHTML = f.오류 ? `<div class="card"><div class="err">${esc(f.오류)}</div></div>` : flpopCard(z, f, null);
+  $("#aSel").innerHTML = s.오류 ? `<div class="card"><div class="err">${esc(s.오류)}</div></div>` : selngCard(z, s, re, biz);
+}
+function areaAuctions(gu, dong) {
+  AUC = null; history.replaceState(null, "", "?"); setMode("auc");
+  $("#fSido").value = "11"; if (AUC_FACETS) fillSgg();
+  $("#fQ").value = dong; $("#aucHint").innerHTML = `<div class="note" style="margin-top:8px">${esc(gu)} ${esc(dong)} 주소로 찾은 경매 물건이에요. 검색칸을 지우면 전체가 보여요.</div>`;
+  loadAuc(1);
 }
 
 function bars(arr, avg, color) {
@@ -767,7 +819,8 @@ let LIST_SCROLL = 0;
 function setMode(m) {
   // m: "home"(처음) | "auc"(목록) | "aucDetail"(경매 물건 상세) | "addr"(주소 분석)
   document.querySelectorAll(".tabs button").forEach((b) => b.classList.toggle("on", b.dataset.m === (m === "aucDetail" ? "auc" : m)));
-  $("#aucPanel").hidden = m !== "auc"; $("#addrPanel").hidden = m !== "addr"; $("#homePanel").hidden = m !== "home";
+  $("#aucPanel").hidden = m !== "auc"; $("#addrPanel").hidden = m !== "addr"; $("#homePanel").hidden = m !== "home"; $("#areaPanel").hidden = m !== "area";
+  if (m === "area") $("#out").innerHTML = "";
   if (m === "home") $("#out").innerHTML = "";
   if (m === "auc") { $("#out").innerHTML = ""; if (!$("#aucList").innerHTML) loadAuc(1); else setTimeout(() => window.scrollTo(0, LIST_SCROLL), 0); }
 }
@@ -780,6 +833,9 @@ function homeAsk(q) {
 document.querySelectorAll(".hq").forEach((b) => b.onclick = () => { $("#homeQ").value = b.dataset.q; homeAsk(b.dataset.q); });
 function goDoor(k) {
   if (k === "startup") {
+    setMode("area"); $("#areaQ").focus();
+    $("#areaOut").innerHTML = `<div class="note" style="margin-top:12px">① 서울이라면 동네·상권 이름과 하려는 업종을 넣어 <b>상권부터</b> 보세요(유동인구·업종별 매출·폐업률). ② 마음에 둔 매물이 있으면 <a href="#" onclick="event.preventDefault();setMode('addr');$('#addr').focus()">주소로 분석</a>에서 지번 주소를 넣고 <b>"임대로 들어갈까?"</b>로 조건을 점검하세요.</div>`;
+    return;
     setMode("addr"); $("#addr").focus();
     $("#out").innerHTML = `<div class="note" style="margin-top:12px">마음에 둔 매물(네이버부동산 등에서 본 곳)의 <b>지번 주소</b>를 넣고 [분석]을 누르세요. 상권 임대료·공실률·주변 점포·업종 가능 여부가 나오고, <b>"임대로 들어갈까?"</b> 칸에 보증금·월세를 넣으면 조건을 점검해 드려요. 아직 자리가 없으면 위 <a href="#" onclick="event.preventDefault();goHome()">처음 화면</a>에서 AI에게 동네·업종을 물어보세요.</div>`;
     return;
@@ -1179,6 +1235,7 @@ function chatDraw(pending) {
       <small>${it.floor != null ? (it.floor < 0 ? "지하" + -it.floor : it.floor) + "층 · " : ""}${it.pyeong ? it.pyeong + "평(" + Math.round(it.area_m2) + "㎡) · " : ""}최저가 ${wonW(it.min_price)} · 유찰 ${it.fail_count ?? 0}회 · ${esc(it.sale_date || "")}${it.risky ? " · ⚠ 권리확인" : ""}</small></div>`).join("")}${m.total > m.items.length ? `<small class="muted">조건에 맞는 ${m.total}건 중 ${m.items.length}건</small>` : ""}</div>` : "") +
     (m.programs?.length ? `<div class="cards">${m.programs.map((g) => `<div data-url="${esc(g.url || "https://www.bizinfo.go.kr")}"><b>${esc(g.title)}</b>
       <small>${esc(g.org || "")}${g.end ? " · 마감 " + esc(g.end) : ""}${g.target ? " · 대상: " + esc(String(g.target).slice(0, 40)) : ""}</small><small style="color:var(--accent)">기업마당 공고 보기 ↗</small></div>`).join("")}</div>` : "") +
+    (m.areas?.list?.length ? `<div class="links">${m.areas.list.map((a) => `<a href="#" onclick="event.preventDefault();openArea('${esc(a.코드)}', '${esc(String(m.areas.biz || "").replace(/'/g, ""))}')">📊 ${esc(a.상권)} 자세히 보기</a>`).join("")}</div>` : "") +
     (m.links?.length ? `<div class="links">${m.links.map((l) => `<a href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.기관)} ↗</a>`).join("")}</div>` : "");
   CHAT.forEach((m, i) => h += m.role === "divider" ? `<div class="muted" style="text-align:center;font-size:12px;margin:4px 0">── ${esc(m.content)} ──</div>` : m.role === "user" ? `<div class="mg u">${esc(m.content)}</div>` : `<div class="mg a">${md(m.content)}${extra(m)}<span style="display:flex;gap:12px"><button type="button" class="cp" data-c="${i}">복사</button><button type="button" class="cp" data-s="${i}">공유</button></span></div>`);
   if (pending) h += `<div class="mg a muted">답변을 쓰는 중…</div>`;
@@ -1193,7 +1250,7 @@ async function chatSend(q) {
     const r = await fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ messages: CHAT.slice(CHAT.map((m) => m.role).lastIndexOf("divider") + 1).filter((m) => !String(m.content).startsWith("⚠️")).slice(-10).map((m) => ({ role: m.role, content: m.content + (m.items?.length ? `\n[찾은 물건: ${m.items.map((i) => i.print_case_no).join(", ")}]` : "") })), context: pageContext(q) }) });
     const x = await r.json();
     if (!r.ok) throw new Error(x.오류 || "AI 상담 오류");
-    CHAT.push({ role: "assistant", content: x.답변 + (x.남은횟수 <= 3 ? `\n\n(오늘 남은 질문 ${x.남은횟수}번)` : ""), items: x.물건 || null, total: x.찾은건수 || 0, links: x.지원기관 || null, programs: x.공고 || null });
+    CHAT.push({ role: "assistant", content: x.답변 + (x.남은횟수 <= 3 ? `\n\n(오늘 남은 질문 ${x.남은횟수}번)` : ""), items: x.물건 || null, total: x.찾은건수 || 0, links: x.지원기관 || null, programs: x.공고 || null, areas: x.상권 || null });
   } catch (e) {
     CHAT.pop(); CHAT.push({ role: "user", content: q }); CHAT.push({ role: "assistant", content: "⚠️ " + e.message });
   } finally { $("#cs").disabled = false; chatDraw(false); }
