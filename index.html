@@ -194,7 +194,7 @@ const ADMIN = (() => { try { const u = new URL(location.href), c = u.searchParam
   if (c === "off") { localStorage.removeItem("admin_code"); u.searchParams.delete("admin"); history.replaceState(null, "", u.pathname + (u.search || "")); return ""; }
   if (c) { localStorage.setItem("admin_code", c); u.searchParams.delete("admin"); history.replaceState(null, "", u.pathname + (u.search || "")); }
   return localStorage.getItem("admin_code") || ""; } catch { return ""; } })();
-const adminH = () => ADMIN ? { "x-admin-code": ADMIN } : {};
+const adminH = () => ADMIN ? { "x-admin-code": encodeURIComponent(ADMIN) } : {};   // 한글 코드도 보낼 수 있게
 const won = (m) => m == null ? "-" : m >= 10000 ? (m / 10000).toFixed(m >= 100000 ? 0 : 1).replace(/\.0$/, "") + "억" : Math.round(m).toLocaleString() + "만";
 const ymd = (s) => s && s.length === 8 ? `${s.slice(0,4)}.${s.slice(4,6)}.${s.slice(6)}` : (s || "-");
 const median = (a) => { const b = a.filter((x) => x != null && isFinite(x)).sort((x, y) => x - y); if (!b.length) return null; const m = b.length >> 1; return b.length % 2 ? b[m] : (b[m - 1] + b[m]) / 2; };
