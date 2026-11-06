@@ -189,6 +189,12 @@ footer{margin-top:40px;font-size:12px;color:var(--sub)}
 <script>
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+// 관리자 모드: 주소 끝에 ?admin=관리자코드 로 한 번 들어오면 이 브라우저에 기억 (코드는 Vercel ADMIN_CODE)
+const ADMIN = (() => { try { const u = new URL(location.href), c = u.searchParams.get("admin");
+  if (c === "off") { localStorage.removeItem("admin_code"); u.searchParams.delete("admin"); history.replaceState(null, "", u.pathname + (u.search || "")); return ""; }
+  if (c) { localStorage.setItem("admin_code", c); u.searchParams.delete("admin"); history.replaceState(null, "", u.pathname + (u.search || "")); }
+  return localStorage.getItem("admin_code") || ""; } catch { return ""; } })();
+const adminH = () => ADMIN ? { "x-admin-code": ADMIN } : {};
 const won = (m) => m == null ? "-" : m >= 10000 ? (m / 10000).toFixed(m >= 100000 ? 0 : 1).replace(/\.0$/, "") + "억" : Math.round(m).toLocaleString() + "만";
 const ymd = (s) => s && s.length === 8 ? `${s.slice(0,4)}.${s.slice(4,6)}.${s.slice(6)}` : (s || "-");
 const median = (a) => { const b = a.filter((x) => x != null && isFinite(x)).sort((x, y) => x - y); if (!b.length) return null; const m = b.length >> 1; return b.length % 2 ? b[m] : (b[m - 1] + b[m]) / 2; };
@@ -1025,7 +1031,7 @@ async function autoCurst() {
   const redraw = () => { const b = $("#aucDoc"); if (b && AUC && AUC.id === a.id) b.innerHTML = docBox(); };
   DOC_STATE = { id: a.id, busy: true, names: "법원 현황조사서" }; redraw();
   try {
-    const r = await fetch(`/api/auctiondoc?id=${encodeURIComponent(a.id)}`);
+    const r = await fetch(`/api/auctiondoc?id=${encodeURIComponent(a.id)}`, { headers: adminH() });
     let x; try { x = await r.json(); } catch { throw new Error(`서버 오류(${r.status})`); }
     if (!r.ok) throw new Error(x.오류 || "현황조사서를 가져오지 못했어요");
     DOC_STATE = { id: a.id, text: x.정리, names: "법원 현황조사서" + (x.저장시각 ? ` (${x.저장시각.slice(0, 10)} 정리)` : "") };
@@ -1055,7 +1061,7 @@ async function readDocs(list) {
     const size = parts.reduce((n, p) => n + p.data.length * 0.75, 0);
     if (size > 3_300_000) throw new Error("파일이 너무 커요(합계 3MB까지). 필요한 쪽만 PDF로 저장하거나 화면 캡처로 올려 주세요.");
     const ctx = `사건 ${a.print_case_no} (${a.court_name || ""}) / 용도 ${a.usage || "-"} / 감정가 ${a.appraised || "-"}원 / 최저가 ${a.min_price || "-"}원 / 유찰 ${a.fail_count ?? 0}회 / 매각기일 ${a.sale_date || "-"} / 비고 ${a.remarks || "없음"}`;
-    const r = await fetch("/api/readdoc", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ files: parts, context: ctx }) });
+    const r = await fetch("/api/readdoc", { method: "POST", headers: { "Content-Type": "application/json", ...adminH() }, body: JSON.stringify({ files: parts, context: ctx }) });
     let x; try { x = await r.json(); } catch { throw new Error(r.status === 413 ? "파일이 너무 커요. 쪽수를 줄여 주세요." : `서버 오류(${r.status})`); }
     if (!r.ok) throw new Error(x.오류 || "서류를 읽지 못했어요");
     DOC_STATE = { id: a.id, text: x.정리, names };
@@ -1247,7 +1253,7 @@ async function chatSend(q) {
   CHAT.push({ role: "user", content: q }); chatDraw(true);
   $("#ci").value = ""; $("#cs").disabled = true;
   try {
-    const r = await fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ messages: CHAT.slice(CHAT.map((m) => m.role).lastIndexOf("divider") + 1).filter((m) => !String(m.content).startsWith("⚠️")).slice(-10).map((m) => ({ role: m.role, content: m.content + (m.items?.length ? `\n[찾은 물건: ${m.items.map((i) => i.print_case_no).join(", ")}]` : "") })), context: pageContext(q) }) });
+    const r = await fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json", ...adminH() }, body: JSON.stringify({ messages: CHAT.slice(CHAT.map((m) => m.role).lastIndexOf("divider") + 1).filter((m) => !String(m.content).startsWith("⚠️")).slice(-10).map((m) => ({ role: m.role, content: m.content + (m.items?.length ? `\n[찾은 물건: ${m.items.map((i) => i.print_case_no).join(", ")}]` : "") })), context: pageContext(q) }) });
     const x = await r.json();
     if (!r.ok) throw new Error(x.오류 || "AI 상담 오류");
     CHAT.push({ role: "assistant", content: x.답변 + (x.남은횟수 <= 3 ? `\n\n(오늘 남은 질문 ${x.남은횟수}번)` : ""), items: x.물건 || null, total: x.찾은건수 || 0, links: x.지원기관 || null, programs: x.공고 || null, areas: x.상권 || null });
@@ -1317,6 +1323,7 @@ if (shareId) showShare(shareId);
 else if (aucId) { setMode("aucDetail"); fetch("/api/auctions?id=" + encodeURIComponent(aucId)).then((r) => r.json()).then((x) => x.item ? openAuc(x.item) : setMode("auc")).catch(() => setMode("auc")); }
 else if (q) { setMode("addr"); $("#addr").value = q; run(q); }
 else setMode("home");
+if (ADMIN) document.querySelector("header h1").insertAdjacentHTML("beforeend", ` <span class="pill mid" style="font-size:12px;vertical-align:middle">관리자 모드 <a href="?admin=off" style="color:inherit">끄기</a></span>`);
 </script>
 </body>
 </html>
