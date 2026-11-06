@@ -107,7 +107,27 @@ async function flpop(req, res) {
   return res.status(200).json({ 분기: Q.yq, 상권: row.TRDAR_CD_NM, 구분: row.TRDAR_SE_CD_NM, ...me, 서울평균: { 연령: avgShare("연령"), 시간: avgShare("시간"), 요일: avgShare("요일") }, 순위: `${rank}/${all.length}` });
 }
 
+// ── 추정매출·점포 자료 구조 확인용 (/api/stores?probe=3120104) — 어떤 조회 방식이 되는지 먼저 확인
+async function probe(req, res) {
+  const t = String(req.query.probe), Q = await latestQuarter(), out = { 유동인구분기: Q.yq };
+  for (const svc of ["VwsmTrdarSelngQq", "VwsmTrdarStorQq", "VwsmTrdarWrcPopltnQq", "VwsmTrdarRepopQq"]) {
+    const r = {};
+    for (const yq of [Q.yq, String(Number(Q.yq) - 1)]) {
+      const a = await fetch(`http://openapi.seoul.go.kr:8088/${encodeURIComponent(SKEY)}/json/${svc}/1/3/${yq}`, { signal: AbortSignal.timeout(20000) }).then((x) => x.json()).catch((e) => ({ e: e.message }));
+      const A = a[svc] || {};
+      r[yq] = { 결과: A.RESULT?.CODE || a.RESULT?.CODE || a.e, 전체: A.list_total_count, 항목: A.row?.[0] ? Object.keys(A.row[0]) : undefined, 예: A.row?.[0] ? Object.fromEntries(Object.entries(A.row[0]).slice(0, 8)) : undefined };
+      const b = await fetch(`http://openapi.seoul.go.kr:8088/${encodeURIComponent(SKEY)}/json/${svc}/1/50/${yq}/${t}`, { signal: AbortSignal.timeout(20000) }).then((x) => x.json()).catch((e) => ({ e: e.message }));
+      const B = b[svc] || {};
+      r[yq + "+상권"] = { 결과: B.RESULT?.CODE || b.RESULT?.CODE || b.e, 전체: B.list_total_count, 상권만: B.row ? B.row.every((x) => String(x.TRDAR_CD) === t) : undefined, 행: B.row?.length };
+      if (A.row?.length) break;
+    }
+    out[svc] = r;
+  }
+  return res.status(200).json(out);
+}
+
 export default async function handler(req, res) {
+  if (req.query?.probe) { try { return await probe(req, res); } catch (e) { return res.status(500).json({ 오류: e.message }); } }
   if (req.query?.flpop) { try { return await flpop(req, res); } catch (e) { return res.status(500).json({ 오류: e.message }); } }
   res.setHeader("Cache-Control", "s-maxage=86400");
   const pnu = String(req.query?.pnu ?? "");
