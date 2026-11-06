@@ -1,4 +1,5 @@
 import { findPrograms } from "../lib/support.js";
+import { findTrdar, bizRegex } from "../lib/area.js";
 // AI 상담 채팅 — 화면에 띄운 자료를 근거로 Claude(Haiku)가 답함
 import { createHash } from "node:crypto";
 
@@ -45,6 +46,7 @@ const SYSTEM_TOOLS = `
 
 [도구 사용]
 - 사용자가 "○○동 20평 식당 자리 있어?", "1층 카페 할 만한 경매 상가"처럼 창업할 자리를 찾으면 search_auctions 도구로 지금 진행 중인 경매 물건을 찾으세요. 지역(동·구), 면적(평이면 ×3.3058로 ㎡ 환산, 범위는 ±15% 여유), 업종, 예산(원)을 넣으세요. 말하지 않은 조건은 비워 두세요.
+- 서울의 동네·상권과 업종을 말하면(예: "홍대 경양식집", "성수동 카페 어때?") 먼저 area_insight 도구로 그 상권의 유동인구와 업종 매출·점포·폐업률을 확인하고, 숫자는 도구 결과 그대로 쓰세요. 후보 상권이 여러 개면 1~2곳을 비교하세요. "점포당 월 추정매출"은 서울시 추정치(분기 매출÷3÷점포 수)라 실제 가게마다 차이가 크다고 한 번 짚으세요. 경기·인천은 이 자료가 없다고 말하세요. 화면에 "이 상권 자세히 보기" 버튼이 따로 나오니 표를 길게 옮기지 마세요.
 - 공장·창고를 찾을 때는 kinds에 factory·warehouse를 넣고, 입지(용도지역·도로 폭·화물차 진입), 공장 설립·등록 가능 여부, 산업단지 입주 자격, 전기 용량, 층고·하중은 이 자료에 없으니 토지이음(eum.go.kr)의 토지이용계획과 시군 공장 인허가 부서에서 확인하라고 짧게 덧붙이세요.
 - 결과는 화면에 카드로 따로 보여지니, 답변에서는 몇 건이 나왔는지, 눈에 띄는 2~3건의 특징(층, 면적, 최저가, 유찰, 위험 표시), 고를 때 확인할 점만 짧게 정리하세요. 결과가 없으면 범위를 넓혀(옆 동, 구 전체, 면적 범위) 한 번 더 찾아보세요.
 - "적합 가능성"은 가능성일 뿐입니다. 경매 물건은 권리관계(임차인·유치권·대지권)를 반드시 확인해야 한다고 짧게 덧붙이세요.
@@ -70,6 +72,11 @@ const TOOLS = [
       region: { type: "string", description: "서울, 경기, 인천, 또는 시군구 이름" },
       keywords: { type: "array", items: { type: "string" }, description: "예: 창업, 소상공인, 음식점, 외식, 자금, 보증, 교육" },
       field: { type: "string", enum: ["", "01", "02", "03", "04", "05", "06", "07", "09"], description: "분야 코드(모르면 비움): 01 금융, 02 기술, 03 인력, 04 수출, 05 내수, 06 창업, 07 경영, 09 기타" } } } },
+  { name: "area_insight",
+    description: "서울 상권(예: 홍대, 연남동, 강남역, 성수동)의 유동인구(연령대·시간대·주말), 업종별 점포 수·점포당 월 추정매출·개업률·폐업률을 서울시 상권분석서비스 자료로 찾는다. 서울만 됨.",
+    input_schema: { type: "object", properties: {
+      area: { type: "string", description: "상권·역·동네 이름. 예: 홍대, 연남동, 강남역, 성수동, 마포구 서교동" },
+      business: { type: "string", description: "하려는 업종. 예: 경양식, 카페, 한식, 술집, 미용실" } }, required: ["area"] } },
   { name: "startup_support",
     description: "소상공인 창업 자금·보증·정부지원·교육·컨설팅 공식 기관 목록을 돌려준다.",
     input_schema: { type: "object", properties: { sido: { type: "string", enum: ["서울", "경기", "인천", "모름"] }, topic: { type: "string", description: "자금, 보증, 교육, 상권, 전체 등" } } } },
@@ -171,6 +178,32 @@ async function bump(client) {
 
 const clip = (s, n) => String(s ?? "").slice(0, n);
 
+// ── 서울 상권 인사이트 (area_insight 도구) — 사이트 자신의 /data/trdar.json, /api/stores 를 불러 씀
+let TRDAR_CACHE = null;
+async function areaInsight(input, base) {
+  if (!TRDAR_CACHE) TRDAR_CACHE = await fetch(`${base}/data/trdar.json`).then((r) => r.json());
+  const cands = findTrdar(TRDAR_CACHE, input.area, 3);
+  if (!cands.length) return { 결과: "서울 상권에서 찾지 못함", 안내: "서울 상권 이름이나 동 이름으로 다시 찾아보세요. 경기·인천은 아직 상권 유동인구·매출 자료가 없어요." };
+  const re = input.business ? bizRegex(input.business) : null;
+  const one = async (z) => {
+    const [f, s] = await Promise.all([
+      fetch(`${base}/api/stores?flpop=${z.c}`).then((r) => r.json()).catch(() => null),
+      fetch(`${base}/api/stores?selng=${z.c}`, { signal: AbortSignal.timeout(40000) }).then((r) => r.json()).catch(() => null),
+    ]);
+    const tot = (a) => (a || []).reduce((x, [, v]) => x + v, 0) || 1;
+    const fl = f && !f.오류 ? { 하루유동인구: Math.round(f.총 / 91), 서울순위: f.순위, 여성비율: Math.round(f.여 / (f.남 + f.여) * 100) + "%",
+      연령: f.연령.map(([k, v]) => `${k} ${(v / tot(f.연령) * 100).toFixed(0)}%`).join(", "), 서울평균연령: f.서울평균?.연령?.join("/"),
+      붐비는시간: [...f.시간].sort((a, b) => b[1] - a[1])[0]?.[0], 분기: f.분기 } : { 오류: f?.오류 || "유동인구 없음" };
+    const L = s?.업종 || [];
+    const row = (o) => ({ 업종: o.업종, 점포: o.유사점포 || o.점포, 점포당월추정매출_만원: o.분기매출 && (o.유사점포 || o.점포) ? Math.round(o.분기매출 / 3 / (o.유사점포 || o.점포) / 1e4) : null, 개업률: o.개업률, 폐업률: o.폐업률, 주말비중: o.주중 + o.주말 ? Math.round(o.주말 / (o.주중 + o.주말) * 100) + "%" : null, 주고객: o.주연령, 매출많은시간: o.주시간 });
+    return { 상권: z.n, 종류: z.t, 위치: `${z.g} ${z.d}`, 코드: z.c, 유동인구: fl, 매출상위업종: L.slice(0, 6).map((o) => o.업종),
+      찾는업종: re ? L.filter((o) => re.test(o.업종)).map(row) : undefined, 매출분기: s?.분기 };
+  };
+  const res = await Promise.all(cands.slice(0, 2).map(one));
+  return { 후보상권: cands.map((z) => `${z.n}(${z.t}, ${z.d})`), 결과: res };
+}
+
+export const config = { maxDuration: 90 };
 export default async function handler(req, res) {
   res.setHeader("Cache-Control", "no-store");
   if (req.method !== "POST") return res.status(405).json({ 오류: "POST만 됩니다." });
@@ -193,7 +226,8 @@ export default async function handler(req, res) {
   const context = clip(body.context, 9000) || "(아직 조회한 주소가 없습니다)";
   try {
     const convo = [...msgs];
-    let found = null, support = null, programs = null, d;
+    let found = null, support = null, programs = null, areas = null, d;
+    const base = `https://${req.headers["x-forwarded-host"] || req.headers.host}`;
     for (let step = 0; step < 4; step++) {
       const r = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
@@ -203,7 +237,7 @@ export default async function handler(req, res) {
           system: `${SYSTEM}${SYSTEM_TOOLS}\n\n[현재 화면 자료]\n${context}`,
           messages: convo,
         }),
-        signal: AbortSignal.timeout(45000),
+        signal: AbortSignal.timeout(50000),
       });
       d = await r.json();
       if (!r.ok) {
@@ -219,6 +253,7 @@ export default async function handler(req, res) {
         try {
           if (u.name === "search_auctions") { out = await searchAuctions(u.input || {}); found = out; }
           else if (u.name === "startup_support") { out = startupSupport(u.input || {}); support = out; }
+          else if (u.name === "area_insight") { out = await areaInsight(u.input || {}, base); if (out.결과?.length) areas = { list: out.결과.map((x) => ({ 코드: x.코드, 상권: x.상권, 종류: x.종류, 위치: x.위치 })), biz: u.input?.business || "" }; }
           else if (u.name === "find_support_programs") { out = await findPrograms(u.input || {}); programs = out; delete out._sampleFields; }
           else out = { 오류: "없는 도구" };
         } catch (e) { out = { 오류: String(e.message || e) }; }
@@ -231,7 +266,7 @@ export default async function handler(req, res) {
     const text = (d.content || []).filter((c) => c.type === "text").map((c) => c.text).join("\n").trim();
     const cut = d.stop_reason === "max_tokens" ? "\n\n(답변이 길어 여기서 끊겼어요. \"이어서\"라고 보내면 계속해요.)" : "";
     return res.status(200).json({ 답변: (text || "답변을 만들지 못했어요. 다시 물어봐 주세요.") + cut, 남은횟수: Math.max(PER_VISITOR - used.mine, 0),
-      ...(found ? { 물건: found.물건.map(({ raw, ...x }) => x), 찾은건수: found.찾은건수 } : {}), ...(support ? { 지원기관: support.기관 } : {}), ...(programs?.공고?.length ? { 공고: programs.공고 } : {}) });
+      ...(found ? { 물건: found.물건.map(({ raw, ...x }) => x), 찾은건수: found.찾은건수 } : {}), ...(support ? { 지원기관: support.기관 } : {}), ...(programs?.공고?.length ? { 공고: programs.공고 } : {}), ...(areas ? { 상권: areas } : {}) });
   } catch (e) {
     return res.status(504).json({ 오류: "AI 응답이 늦어요. 잠시 후 다시 시도해 주세요." });
   }
