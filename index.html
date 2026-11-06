@@ -51,8 +51,8 @@ select,.tools input{font:inherit;font-size:14px;padding:7px 10px;border:1px soli
 .err{background:var(--bad-soft);color:var(--bad);border-radius:10px;padding:12px 14px;margin-top:16px}
 .spin{display:inline-block;width:16px;height:16px;border:2px solid #fff;border-right-color:transparent;border-radius:50%;animation:s 1s linear infinite;vertical-align:-3px}
 @keyframes s{to{transform:rotate(360deg)}}
-.tabs{display:flex;gap:6px;margin-top:18px;border-bottom:1px solid var(--line)}
-.tabs button{background:none;color:var(--sub);border-radius:10px 10px 0 0;padding:10px 16px;font-size:15px}
+.tabs{display:flex;gap:6px;margin-top:18px;border-bottom:1px solid var(--line);overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch}.tabs::-webkit-scrollbar{display:none}
+.tabs button{background:none;color:var(--sub);border-radius:10px 10px 0 0;padding:10px 16px;font-size:15px;white-space:nowrap;flex:none}
 .tabs button.on{background:var(--card);color:var(--accent);border:1px solid var(--line);border-bottom-color:var(--card);margin-bottom:-1px}
 #fGrp button{background:#fff;color:var(--ink);border:1px solid var(--line);padding:7px 12px;font-size:14px;font-weight:500}
 #fGrp button.on,#fSrc button.on{background:var(--accent);color:#fff;border-color:var(--accent)}
@@ -125,7 +125,7 @@ footer{margin-top:40px;font-size:12px;color:var(--sub)}
   <h1 style="cursor:pointer;padding-right:150px" onclick="goHome()">좋은목 <span style="font-size:15px;font-weight:500;color:var(--sub)">상권으로 판단하는 낙찰·임대·창업</span></h1>
   <p>사든, 빌리든, 차리든 — 먼저 목을 보세요. 서울·경기·인천의 실거래·임대료·공실률·유동인구·업종 매출·경매·공매 물건을 한 화면에서 봅니다.</p>
 </header>
-<nav class="tabs"><button type="button" data-m="home">처음</button><button type="button" data-m="area">동네·업종 분석</button><button type="button" data-m="auc">경매 물건 찾기</button><button type="button" data-m="addr">주소로 분석</button><button type="button" data-m="watch" id="tabWatch" hidden>⭐ 관심 물건</button></nav>
+<nav class="tabs"><button type="button" data-m="home">처음</button><button type="button" data-m="area">동네·업종 분석</button><button type="button" data-m="auc">경매 물건 찾기</button><button type="button" data-m="addr">주소로 분석</button><button type="button" data-m="sup">창업 지원사업</button><button type="button" data-m="watch" id="tabWatch" hidden>⭐ 관심 물건</button></nav>
 <div id="watchPanel" hidden><div id="watchOut" style="margin-top:14px"></div></div>
 <div id="homePanel" hidden>
   <div class="card" style="margin-top:14px;border:2px solid var(--accent)">
@@ -146,6 +146,10 @@ footer{margin-top:40px;font-size:12px;color:var(--sub)}
     <div class="door" onclick="goDoor('invest')"><b>💰 투자로 낙찰받기</b><p>임대 수익이 나는 상가·오피스텔을 경매·공매로. 실거래 시세와 임대료로 수익률을 따져 봐요.</p><span>경매 물건 보기 →</span></div>
     <div class="door" onclick="goDoor('use')"><b>🏢 내가 쓸 곳 찾기</b><p>사무실·가게·공장·창고를 사거나 낙찰받기. 용도와 토지 규제로 그 공간을 쓸 수 있는지 봐요.</p><span>사무실·공장·창고 보기 →</span></div>
     <div class="door" onclick="goDoor('startup')"><b>🏪 창업 자리 찾기</b><p>어느 상권에서, 임대와 낙찰 중 무엇으로? 유동인구·업종별 매출·폐업률부터 월세 점검까지.</p><span>동네·업종 분석하기 →</span></div>
+  </div>
+  <div class="card" style="margin-top:12px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;cursor:pointer" onclick="setMode('sup')">
+    <div><h2 style="font-size:16px;margin:0 0 2px">🎁 창업 지원사업 공고</h2><span class="muted" style="font-size:14px">정책자금·교육·컨설팅 등 지금 접수 중인 공고를 지역별로 — AI 없이 바로 보기</span></div>
+    <span style="color:var(--accent);font-weight:600">공고 보기 →</span>
   </div>
   <div class="card" style="margin-top:12px" id="lhCard">
     <h2 style="font-size:16px;margin:0 0 8px">공공 임대·분양 상가 공고 <span class="muted">LH · 서울·경기·인천 · 시세보다 싼 경우가 많아요</span></h2>
@@ -168,6 +172,19 @@ footer{margin-top:40px;font-size:12px;color:var(--sub)}
   </form>
   <p class="muted" style="margin:6px 0 0;font-size:13px">서울시 상권분석서비스의 상권 1,650곳 자료예요. 경기·인천은 아직 이 자료가 없어서, 마음에 둔 자리의 지번 주소로 "주소로 분석"을 이용해 주세요.</p>
   <div id="areaOut"></div>
+</div>
+<div id="supPanel" hidden>
+  <div class="card" style="margin-top:14px">
+    <h2 style="font-size:18px;margin:0 0 4px">창업 지원사업 공고</h2>
+    <p class="muted" style="margin:0 0 12px;font-size:14px">기업마당에 올라온 지원사업 중 <b>지금 접수 중</b>인 것을 지역·키워드로 골라 보여 드려요. 소상공인·창업 공고를 앞에 놓아요.</p>
+    <div class="chips" id="supReg"><button type="button" data-r="서울" class="on">서울</button><button type="button" data-r="경기">경기</button><button type="button" data-r="인천">인천</button></div>
+    <form class="lsf" style="margin-top:10px;grid-template-columns:2fr auto" onsubmit="event.preventDefault();supSearch()">
+      <label>키워드 (선택, 쉼표로 여러 개)<input id="supQ" placeholder="예: 음식점, 청년, 대출, 컨설팅"></label>
+      <button type="submit">공고 찾기</button>
+    </form>
+    <div class="chips" style="margin-top:8px" id="supKw"><button type="button" data-k="창업">#창업</button><button type="button" data-k="자금,융자,보증">#자금·대출</button><button type="button" data-k="교육,컨설팅">#교육·컨설팅</button><button type="button" data-k="청년">#청년</button><button type="button" data-k="음식,외식">#음식점</button><button type="button" data-k="전통시장,골목">#전통시장·골목</button></div>
+  </div>
+  <div id="supOut"></div>
 </div>
 <div id="aucPanel" hidden>
   <div class="chips" id="fSrc" style="margin-top:14px"><button type="button" data-s="court" class="on">⚖️ 법원경매</button><button type="button" data-s="onbid">🏛️ 공매(온비드)</button></div>
@@ -218,7 +235,8 @@ const ADMIN = (() => { try { const u = new URL(location.href), c = u.searchParam
   if (c === "off") { localStorage.removeItem("admin_code"); u.searchParams.delete("admin"); history.replaceState(null, "", u.pathname + (u.search || "")); return ""; }
   if (c) { localStorage.setItem("admin_code", c); u.searchParams.delete("admin"); history.replaceState(null, "", u.pathname + (u.search || "")); }
   return localStorage.getItem("admin_code") || ""; } catch { return ""; } })();
-const adminH = () => ADMIN ? { "x-admin-code": encodeURIComponent(ADMIN) } : {};   // 한글 코드도 보낼 수 있게
+const adminH = () => ({ ...(ADMIN ? { "x-admin-code": encodeURIComponent(ADMIN) } : {}), ...(ACCESS ? { Authorization: "Bearer " + ACCESS } : {}) });
+let ACCESS = null;   // 로그인 회원의 접속 토큰 (AI 이용 횟수를 회원 기준으로 셈)   // 한글 코드도 보낼 수 있게
 const won = (m) => m == null ? "-" : m >= 10000 ? (m / 10000).toFixed(m >= 100000 ? 0 : 1).replace(/\.0$/, "") + "억" : Math.round(m).toLocaleString() + "만";
 const ymd = (s) => s && s.length === 8 ? `${s.slice(0,4)}.${s.slice(4,6)}.${s.slice(6)}` : (s || "-");
 const median = (a) => { const b = a.filter((x) => x != null && isFinite(x)).sort((x, y) => x - y); if (!b.length) return null; const m = b.length >> 1; return b.length % 2 ? b[m] : (b[m - 1] + b[m]) / 2; };
@@ -907,7 +925,9 @@ let LIST_SCROLL = 0;
 function setMode(m) {
   // m: "home"(처음) | "auc"(목록) | "aucDetail"(경매 물건 상세) | "addr"(주소 분석)
   document.querySelectorAll(".tabs button").forEach((b) => b.classList.toggle("on", b.dataset.m === (m === "aucDetail" ? "auc" : m)));
-  $("#aucPanel").hidden = m !== "auc"; $("#addrPanel").hidden = m !== "addr"; $("#homePanel").hidden = m !== "home"; $("#areaPanel").hidden = m !== "area"; $("#watchPanel").hidden = m !== "watch";
+  { const t = document.querySelector(".tabs"), on = t?.querySelector("button.on"); if (on && (on.offsetLeft < t.scrollLeft || on.offsetLeft + on.offsetWidth > t.scrollLeft + t.clientWidth)) t.scrollLeft = on.offsetLeft - 16; }
+  $("#aucPanel").hidden = m !== "auc"; $("#addrPanel").hidden = m !== "addr"; $("#homePanel").hidden = m !== "home"; $("#areaPanel").hidden = m !== "area"; $("#watchPanel").hidden = m !== "watch"; $("#supPanel").hidden = m !== "sup";
+  if (m === "sup") { $("#out").innerHTML = ""; if (!$("#supOut").innerHTML) supSearch(); }
   if (m === "watch") { $("#out").innerHTML = ""; renderWatch(); }
   if (m === "area") $("#out").innerHTML = "";
   if (m === "home") { $("#out").innerHTML = ""; loadLh(); }
@@ -933,6 +953,40 @@ async function loadLh() {
   } catch (e) { box.innerHTML = `<span class="muted">${esc(e.message)}</span>`; }
 }
 
+// ── 창업 지원사업 (AI 없이 보는 화면) ─────────────────────────────
+let SUP_REG = "서울", SUP_SEQ = 0;
+document.querySelectorAll("#supReg button").forEach((b) => b.onclick = () => { SUP_REG = b.dataset.r; document.querySelectorAll("#supReg button").forEach((x) => x.classList.toggle("on", x === b)); supSearch(); });
+document.querySelectorAll("#supKw button").forEach((b) => b.onclick = () => { $("#supQ").value = b.dataset.k; supSearch(); });
+function supDday(end) {
+  if (!end || end === "상시") return `<span class="pill ok">상시</span>`;
+  const d = Math.round((new Date(end + "T00:00:00+09:00") - new Date(new Date(Date.now() + 9 * 3600_000).toISOString().slice(0, 10) + "T00:00:00+09:00")) / 864e5);
+  return `<span class="pill ${d <= 7 ? "no" : "mid"}">${d === 0 ? "오늘 마감" : "D-" + d}</span>`;
+}
+async function supSearch() {
+  const seq = ++SUP_SEQ, out = $("#supOut"), q = $("#supQ").value.trim();
+  out.innerHTML = `<div class="card muted">${esc(SUP_REG)} 지원사업 공고를 찾는 중… (기업마당 자료를 읽느라 몇 초 걸려요)</div>`;
+  try {
+    const r = await fetch(`/api/account?support=1&orgs=1&limit=30&region=${encodeURIComponent(SUP_REG)}&q=${encodeURIComponent(q)}`), x = await r.json();
+    if (seq !== SUP_SEQ) return;
+    if (!r.ok) throw new Error(x.오류 || "공고를 불러오지 못했어요");
+    const L = x.공고 || [];
+    out.innerHTML = `<div class="card">
+      <h2 style="font-size:16px;margin:0 0 4px">${esc(SUP_REG)}${q ? ` · "${esc(q)}"` : ""} 접수 중 공고 ${L.length}건</h2>
+      <p class="muted" style="margin:0 0 10px;font-size:13px">기준일 ${esc(x.기준일)} · 지원 금액·자격·서류는 공고 원문에서 꼭 확인하세요. 전국 공고도 함께 나와요.</p>
+      ${L.length ? `<div class="lhgrid">${L.map((g) => `<a class="lhitem" href="${esc(g.url || "https://www.bizinfo.go.kr")}" target="_blank" rel="noopener">
+        <span style="display:flex;gap:6px;flex-wrap:wrap">${supDday(g.end)}${g.field ? `<span class="pill" style="background:#eef0f3;color:var(--sub)">${esc(g.field)}</span>` : ""}</span>
+        <b>${esc(g.title)}</b>
+        <small>${esc(g.org || "")}${g.end && g.end !== "상시" ? ` · 마감 ${esc(g.end)}` : ""}</small>
+        ${g.target ? `<small>대상: ${esc(String(g.target).slice(0, 60))}</small>` : ""}
+        ${g.summary ? `<small style="color:var(--ink)">${esc(g.summary.slice(0, 110))}${g.summary.length > 110 ? "…" : ""}</small>` : ""}</a>`).join("")}</div>`
+        : `<p class="muted" style="margin:0">조건에 맞는 접수 중 공고가 없어요. 키워드를 비우거나 바꿔 보세요.</p>`}
+    </div>
+    <div class="card"><h2 style="font-size:16px;margin:0 0 8px">늘 확인할 공식 창구</h2>
+      <div class="lhgrid">${(x.기관 || []).map((o) => `<a class="lhitem" href="${esc(o.url)}" target="_blank" rel="noopener"><span class="pill ok">${esc(o.분야)}</span><b>${esc(o.기관)}</b><small>${esc(o.설명)}</small></a>`).join("")}</div>
+      <p style="margin:10px 0 0;font-size:13px">💬 내 업종·상황에 맞는 걸 골라 달라고 하려면 <a href="#" onclick="event.preventDefault();goHome();$('#homeQ').value='${esc(SUP_REG)}에서 ${q ? esc(q.split(",")[0]) + " " : ""}창업을 준비 중이에요. 받을 수 있는 지원사업을 골라 주세요.';$('#homeQ').focus()">AI에게 물어보기</a></p>
+    </div>`;
+  } catch (e) { if (seq === SUP_SEQ) out.innerHTML = `<div class="card muted">${esc(e.message)}</div>`; }
+}
 // ── 회원(카카오 로그인) · 관심 물건 · 알림 ─────────────────────────────
 let SB = null, USER = null, PROFILE = null, WATCH = new Map(), WATCH_ALERTS = null;
 async function initAuth() {
@@ -940,8 +994,8 @@ async function initAuth() {
     const c = await fetch("/api/account?config=1").then((r) => r.json());
     if (!c.로그인 || !window.supabase) { $("#userBox").innerHTML = ""; return; }
     SB = window.supabase.createClient(c.url, c.key, { auth: { persistSession: true, detectSessionInUrl: true, flowType: "pkce" } });
-    SB.auth.onAuthStateChange((_e, session) => { USER = session?.user || null; afterAuth(); });
-    const { data } = await SB.auth.getSession(); USER = data.session?.user || null; afterAuth();
+    SB.auth.onAuthStateChange((_e, session) => { ACCESS = session?.access_token || null; const u = session?.user || null; if (u?.id !== USER?.id || _e === "SIGNED_OUT") { USER = u; afterAuth(); } });
+    const { data } = await SB.auth.getSession(); ACCESS = data.session?.access_token || null; USER = data.session?.user || null; afterAuth();
   } catch { $("#userBox").innerHTML = ""; }
 }
 let AUTH_DONE = 0;
@@ -966,7 +1020,7 @@ async function login() {
   if (!SB) return alertBox("로그인을 아직 쓸 수 없어요.");
   await SB.auth.signInWithOAuth({ provider: "kakao", options: { redirectTo: location.origin + location.pathname + location.search } });
 }
-async function logout() { if (SB) await SB.auth.signOut(); USER = null; afterAuth(); if (!$("#watchPanel").hidden) goHome(); }
+async function logout() { if (SB) await SB.auth.signOut(); USER = null; ACCESS = null; afterAuth(); if (!$("#watchPanel").hidden) goHome(); }
 function alertBox(msg) { const d = document.createElement("div"); d.className = "note"; d.style.cssText = "position:fixed;left:50%;top:16px;transform:translateX(-50%);z-index:99;box-shadow:0 6px 20px rgba(0,0,0,.15);max-width:92vw"; d.innerHTML = msg; document.body.appendChild(d); setTimeout(() => d.remove(), 3500); }
 
 // 경매 물건 화면의 ☆ 버튼
