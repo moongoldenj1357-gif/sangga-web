@@ -1,7 +1,8 @@
 // 경매 물건의 현황조사서를 법원경매정보에서 한 건만 가져와 AI가 쉬운 말로 정리 (개인 이름 제거)
 // 원본은 저장하지 않고 정리본만 auction_docs에 저장해 다음 사람은 법원에 다시 접속하지 않음
 import { createHash } from "node:crypto";
-import { isAdmin, whoIs, dailyLimit } from "../lib/admin.js";
+import { isAdmin } from "../lib/admin.js";
+import { spend } from "../lib/credit.js";
 export const config = { maxDuration: 60 };
 
 const BASE = "https://www.courtauction.go.kr";
@@ -77,7 +78,8 @@ export default async function handler(req, res) {
   res.setHeader("Cache-Control", "no-store");
   if (!SB_URL || !SB_KEY || !API_KEY) return res.status(500).json({ 오류: "환경변수를 확인하세요." });
   const id = String(req.query?.id || "");
-  const kind = "curst3";  // 정리 방식이 바뀌면 숫자를 올려 예전 저장본을 쓰지 않음
+  const kind = "curst3";
+  let pay = null;  // 정리 방식이 바뀌면 숫자를 올려 예전 저장본을 쓰지 않음
   try {
     const [it] = await sb("GET", `auction_items?id=eq.${encodeURIComponent(id)}&select=id,court_code,court_name,print_case_no,usage,remarks,sale_date`);
     if (!it) return res.status(404).json({ 오류: "물건을 찾지 못했어요." });
@@ -86,23 +88,19 @@ export default async function handler(req, res) {
       if (hit && Date.now() - new Date(hit.created_at).getTime() < 14 * 864e5) return res.status(200).json({ 정리: hit.summary, 저장시각: hit.created_at, 출처: "저장된 정리" });
     }
     // 사용 한도 (저장된 정리가 없을 때만)
-    const ip = String(req.headers["x-forwarded-for"] || req.socket?.remoteAddress || "unknown").split(",")[0].trim();
-    const me = await whoIs(req);
-    const used = await sb("POST", "rpc/bump_chat", { p_client: me.id ? hash("aucdoc|u|" + me.id) : hash("aucdoc|" + ip + "|" + SB_KEY.slice(-12)) });
-    const u = Array.isArray(used) ? used[0] : used;
-    const admin = isAdmin(req) || me.tier === "admin";
-    const PER_VISITOR = dailyLimit(me.tier, "aucdoc");
-    if (!admin && u.mine > PER_VISITOR) return res.status(429).json({ 오류: `서류 자동 정리는 하루 ${PER_VISITOR}번까지예요.` });
+    pay = await spend(req, "aucdoc");
+    if (!pay.ok) return res.status(pay.error.status).json(pay.error.body);
+    const admin = pay.free && isAdmin(req);
     const today = new Date(Date.now() + 9 * 3600_000).toISOString().slice(0, 10);
     const cnt = await fetch(`${SB_URL}/rest/v1/auction_docs?created_at=gte.${today}T00:00:00%2B09:00&select=id`, { headers: { apikey: SB_KEY, Prefer: "count=exact", Range: "0-0", ...(SB_KEY.startsWith("sb_") ? {} : { Authorization: `Bearer ${SB_KEY}` }) } });
-    if (!admin && Number((cnt.headers.get("content-range") || "/0").split("/")[1]) >= COURT_DAILY_CAP) return res.status(429).json({ 오류: "오늘 서류 자동 정리 한도가 찼어요. 내일 다시 이용하거나, 서류를 직접 올려 주세요." });
+    if (!admin && Number((cnt.headers.get("content-range") || "/0").split("/")[1]) >= COURT_DAILY_CAP) return (await pay.refund(), res.status(429)).json({ 오류: "오늘 서류 자동 정리 한도가 찼어요. 내일 다시 이용하거나, 서류를 직접 올려 주세요." });
 
-    if (!it.court_code || !it.print_case_no) return res.status(400).json({ 오류: "이 물건은 법원 코드나 사건번호가 없어 서류를 가져올 수 없어요." });
+    if (!it.court_code || !it.print_case_no) { await pay.refund(); return res.status(400).json({ 오류: "이 물건은 법원 코드나 사건번호가 없어 서류를 가져올 수 없어요." }); }
     const raw = await fetchCurst(it.court_code, it.print_case_no);
     const data = clean(raw);
     if (req.query?.debug === "keys") return res.status(200).json({ 구조: shape(data ?? {}) });  // 값 없이 구조만
     const text = JSON.stringify(data ?? {});
-    if (text.length < 30) return res.status(200).json({ 정리: "법원 사이트에 이 사건의 현황조사서가 아직 없어요.", 출처: "법원" });
+    if (text.length < 30) { await pay.refund(); return res.status(200).json({ 정리: "법원 사이트에 이 사건의 현황조사서가 아직 없어요.", 출처: "법원" }); }
 
     const r = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -112,12 +110,13 @@ export default async function handler(req, res) {
       signal: AbortSignal.timeout(50000),
     });
     const d = await r.json();
-    if (!r.ok) return res.status(502).json({ 오류: `AI 응답 오류(${r.status})` });
+    if (!r.ok) { await pay.refund(); return res.status(502).json({ 오류: `AI 응답 오류(${r.status})` }); }
     let summary = (d.content || []).filter((c) => c.type === "text").map((c) => c.text).join("\n").trim();
     if (d.stop_reason === "max_tokens") return res.status(200).json({ 정리: summary + "\n\n(내용이 길어 끝이 잘렸어요. 잠시 뒤 다시 눌러 보세요.)", 출처: "법원 현황조사서" });
     await sb("POST", "auction_docs?on_conflict=id", [{ id: id + ":" + kind, item_id: id, kind, summary, created_at: new Date().toISOString() }], "resolution=merge-duplicates,return=minimal");
-    return res.status(200).json({ 정리: summary, 출처: "법원 현황조사서" });
+    return res.status(200).json({ 정리: summary, 출처: "법원 현황조사서", 남은크레딧: pay.left });
   } catch (e) {
+    if (pay?.ok) await pay.refund();
     return res.status(500).json({ 오류: e.message });
   }
 }

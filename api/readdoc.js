@@ -1,6 +1,6 @@
 // 경매 서류(매각물건명세서·현황조사서·감정평가서·등기부 등)를 AI가 읽고 쉬운 말로 정리 — 파일은 저장하지 않음
 import { createHash } from "node:crypto";
-import { isAdmin, whoIs, dailyLimit } from "../lib/admin.js";
+import { spend } from "../lib/credit.js";
 const API_KEY = process.env.ANTHROPIC_API_KEY ?? "";
 const MODEL = process.env.DOC_MODEL || process.env.CHAT_MODEL || "claude-haiku-5-5";
 const SB_URL = (process.env.SUPABASE_URL ?? "").trim().replace(/\/+$/, "").replace(/\/rest\/v1$/, "");
@@ -64,14 +64,8 @@ export default async function handler(req, res) {
   }
   if (bytes > MAX_BYTES) return res.status(413).json({ 오류: "파일이 너무 커요(합계 3MB까지). 필요한 쪽만 PDF로 저장하거나 화면을 캡처해서 올려 주세요." });
 
-  const ip = String(req.headers["x-forwarded-for"] || req.socket?.remoteAddress || "unknown").split(",")[0].trim();
-  let used;
-  const me = await whoIs(req);
-  try { used = await bump(me.id ? hash("doc|u|" + me.id) : hash("doc|" + ip + "|" + SB_KEY.slice(-12))); } catch (e) { return res.status(500).json({ 오류: e.message }); }
-  const admin = isAdmin(req) || me.tier === "admin";
-  const PER_VISITOR = dailyLimit(me.tier, "doc");
-  if (!admin && used.total > SITE_TOTAL) return res.status(429).json({ 오류: "오늘 사이트 전체 AI 사용 한도가 찼어요. 내일 다시 이용해 주세요." });
-  if (!admin && used.mine > PER_VISITOR) return res.status(429).json({ 오류: `서류 읽기는 하루 ${PER_VISITOR}번까지예요.${me.id ? " 내일 다시 이용해 주세요." : " 카카오로 로그인하면 더 쓸 수 있어요."}` });
+  const pay = await spend(req, "doc");
+  if (!pay.ok) return res.status(pay.error.status).json(pay.error.body);
 
   const ctx = String(body.context || "").slice(0, 1500);
   try {
@@ -87,13 +81,15 @@ export default async function handler(req, res) {
     const d = await r.json();
     if (!r.ok) {
       const msg = d?.error?.message || "";
+      await pay.refund();
       if (/pdf|document|page/i.test(msg)) return res.status(400).json({ 오류: "이 PDF를 읽지 못했어요. 필요한 쪽을 화면 캡처(사진)로 올려 보세요." });
       return res.status(502).json({ 오류: `AI 응답 오류(${r.status})` });
     }
     const text = (d.content || []).filter((c) => c.type === "text").map((c) => c.text).join("\n").trim();
     const cut = d.stop_reason === "max_tokens" ? "\n\n(내용이 길어 여기서 끊겼어요. 서류를 나눠서 올려 보세요.)" : "";
-    return res.status(200).json({ 정리: text + cut, 남은횟수: admin ? 999 : Math.max(PER_VISITOR - used.mine, 0) });
+    return res.status(200).json({ 정리: text + cut, 남은크레딧: pay.left });
   } catch (e) {
+    await pay.refund();
     return res.status(504).json({ 오류: "서류를 읽는 데 시간이 너무 걸렸어요. 쪽수를 줄여서 다시 올려 보세요." });
   }
 }

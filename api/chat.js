@@ -3,7 +3,7 @@ import { findTrdar, bizRegex } from "../lib/area.js";
 import { findLhShops } from "../lib/lh.js";
 // AI 상담 채팅 — 화면에 띄운 자료를 근거로 Claude(Haiku)가 답함
 import { createHash } from "node:crypto";
-import { isAdmin, whoIs, dailyLimit } from "../lib/admin.js";
+import { spend } from "../lib/credit.js";
 
 const API_KEY = process.env.ANTHROPIC_API_KEY ?? "";
 const MODEL = process.env.CHAT_MODEL || "claude-haiku-5-5";
@@ -213,16 +213,9 @@ export default async function handler(req, res) {
   if (!msgs.length || msgs[msgs.length - 1].role !== "user") return res.status(400).json({ 오류: "질문이 없습니다." });
   while (msgs[0].role !== "user") msgs.shift();
 
-  // 하루 사용 횟수 확인
-  const ip = String(req.headers["x-forwarded-for"] || req.socket?.remoteAddress || "unknown").split(",")[0].trim();
-  const me = await whoIs(req);
-  const client = me.id ? hash("u|" + me.id) : hash(ip + "|" + SB_KEY.slice(-12));   // 회원은 회원 단위, 비회원은 접속 단위
-  let used;
-  try { used = await bump(client); } catch (e) { return res.status(500).json({ 오류: e.message }); }
-  const admin = isAdmin(req) || me.tier === "admin";
-  const PER_VISITOR = dailyLimit(me.tier, "chat");
-  if (!admin && used.total > SITE_TOTAL) return res.status(429).json({ 오류: "오늘 사이트 전체 AI 상담 한도가 찼어요. 내일 다시 이용해 주세요.", 남은횟수: 0 });
-  if (!admin && used.mine > PER_VISITOR) return res.status(429).json({ 오류: me.id ? `AI 상담은 하루 ${PER_VISITOR}번까지예요. 내일 다시 이용해 주세요.` : `로그인 없이 AI 상담은 하루 ${PER_VISITOR}번까지예요. 카카오로 로그인하면 하루 ${dailyLimit("free", "chat")}번까지 쓸 수 있어요.`, 남은횟수: 0, 로그인권유: !me.id });
+  // 크레딧 확인·차감 (AI가 실패하면 되돌려 줌)
+  const pay = await spend(req, "chat");
+  if (!pay.ok) return res.status(pay.error.status).json(pay.error.body);
 
   const context = clip(body.context, 9000) || "(아직 조회한 주소가 없습니다)";
   try {
@@ -243,7 +236,8 @@ export default async function handler(req, res) {
       d = await r.json();
       if (!r.ok) {
         const msg = d?.error?.message || "";
-        if (/credit|balance|billing/i.test(msg)) return res.status(503).json({ 오류: "AI 상담 크레딧이 떨어졌어요. (관리자: Anthropic 콘솔에서 충전)" });
+        await pay.refund();
+        if (/credit|balance|billing/i.test(msg)) return res.status(503).json({ 오류: "지금 AI 상담을 쓸 수 없어요. 잠시 뒤 다시 이용해 주세요. (관리자: Anthropic 콘솔 잔액·한도 확인)" });
         return res.status(502).json({ 오류: `AI 응답 오류(${r.status}): ${msg.slice(0, 200)}` });
       }
       const uses = (d.content || []).filter((c) => c.type === "tool_use");
@@ -267,9 +261,10 @@ export default async function handler(req, res) {
     }
     const text = (d.content || []).filter((c) => c.type === "text").map((c) => c.text).join("\n").trim();
     const cut = d.stop_reason === "max_tokens" ? "\n\n(답변이 길어 여기서 끊겼어요. \"이어서\"라고 보내면 계속해요.)" : "";
-    return res.status(200).json({ 답변: (text || "답변을 만들지 못했어요. 다시 물어봐 주세요.") + cut, 남은횟수: admin ? 999 : Math.max(PER_VISITOR - used.mine, 0),
+    return res.status(200).json({ 답변: (text || "답변을 만들지 못했어요. 다시 물어봐 주세요.") + cut, 남은크레딧: pay.left, 회원: !!pay.me.id,
       ...(found ? { 물건: found.물건.map(({ raw, ...x }) => x), 찾은건수: found.찾은건수 } : {}), ...(support ? { 지원기관: support.기관 } : {}), ...(programs?.공고?.length ? { 공고: programs.공고 } : {}), ...(areas ? { 상권: areas } : {}) });
   } catch (e) {
-    return res.status(504).json({ 오류: "AI 응답이 늦어요. 잠시 후 다시 시도해 주세요." });
+    await pay.refund();
+    return res.status(504).json({ 오류: "AI 응답이 늦어요. 잠시 후 다시 시도해 주세요. (크레딧은 돌려 드렸어요)" });
   }
 }
