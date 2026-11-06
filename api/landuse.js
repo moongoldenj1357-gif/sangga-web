@@ -47,13 +47,27 @@ const HINTS = [
   [/도시계획시설|도로|공원|광장/, "도시계획시설에 걸려 있으면 장래 수용·건축 제한 가능성이 있어요. 저촉 여부를 확인하세요."],
 ];
 
-export async function landUse(pnu) {
+// 지번 주소 → 좌표 (브이월드 주소 좌표 변환). 점포 자료로 위치를 못 잡을 때 화면이 쓰는 백업 위치
+async function geocode(addr) {
+  if (!addr) return null;
+  const u = new URL("https://api.vworld.kr/req/address");
+  for (const [k, v] of Object.entries({ service: "address", request: "getcoord", version: "2.0", crs: "epsg:4326", address: addr, refine: "true", simple: "false", format: "json", type: "parcel", key: KEY, domain: DOMAIN }))
+    u.searchParams.set(k, v);
+  try {
+    const j = await fetch(u, { signal: AbortSignal.timeout(8000), headers: { Referer: DOMAIN + "/" } }).then((r) => r.json());
+    const p = j?.response?.result?.point;
+    return j?.response?.status === "OK" && p ? { lon: Number(p.x), lat: Number(p.y) } : null;
+  } catch { return null; }
+}
+
+export async function landUse(pnu, addr) {
   if (!KEY) return { 결과: "키없음", 안내: "Vercel 환경변수에 VWORLD_KEY가 없어요." };
   if (!/^\d{19}$/.test(String(pnu))) return { 결과: "오류", 안내: "PNU(19자리)가 필요해요." };
   const year = new Date(Date.now() + 9 * 3600_000).getUTCFullYear();
-  const [ua, lc1] = await Promise.all([
+  const [ua, lc1, pos] = await Promise.all([
     vw("getLandUseAttr", { pnu, cnflcAt: "", prposAreaDstrcCodeNm: "" }).catch((e) => ({ __e: e.message })),
     vw("getLandCharacteristics", { pnu, stdrYear: String(year) }).catch((e) => ({ __e: e.message })),
+    geocode(addr),
   ]);
   const U = fields(ua);
   let C = fields(lc1);
@@ -72,13 +86,13 @@ export async function landUse(pnu) {
   const hints = HINTS.filter(([re]) => re.test(names + " " + (land?.용도지역 || ""))).map(([, t]) => t);
   const errs = [U.err, ua.__e, !c ? (C.err || lc1.__e) : null].filter(Boolean);
   if (!zones.length && !land) return { 결과: "없음", 안내: errs.length ? "브이월드 조회 실패: " + errs.join(" / ") : "이 필지의 토지이용계획 정보를 찾지 못했어요.", pnu };
-  return { 결과: "완료", pnu, 토지: land, 지역지구: zones, 풀이: hints, ...(errs.length ? { 참고오류: errs } : {}) };
+  return { 결과: "완료", pnu, 좌표: pos, 토지: land, 지역지구: zones, 풀이: hints, ...(errs.length ? { 참고오류: errs } : {}) };
 }
 
 export default async function handler(req, res) {
   res.setHeader("Cache-Control", "s-maxage=86400");
   try {
-    const x = await landUse(String(req.query?.pnu || ""));
+    const x = await landUse(String(req.query?.pnu || ""), String(req.query?.addr || "").slice(0, 120));
     if (x.결과 === "완료" || x.결과 === "없음") return res.status(200).json(x);
     return res.status(x.결과 === "키없음" ? 500 : 400).json(x);
   } catch (e) {
