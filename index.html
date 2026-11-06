@@ -640,11 +640,20 @@ function bars(arr, avg, color) {
       ${a != null ? `<span title="서울 상권 평균 ${a}%" style="position:absolute;top:-2px;bottom:-2px;left:${a / mx * 100}%;width:2px;background:var(--ink)"></span>` : ""}</span>
       <span style="text-align:right">${p.toFixed(1)}%${a != null ? ` <span class="muted">(${a})</span>` : ""}</span>`; }).join("")}</div>`;
 }
+// 시간대 길이가 달라(0~6시 6시간, 11~14시 3시간) 시간당으로 바꿔 비교
+const bandHours = (k) => { const m = String(k).match(/(\d+)~(\d+)/); return m ? (Number(m[2]) - Number(m[1])) || 1 : 1; };
+function perHour(arr, avg) {
+  const ph = arr.map(([k, v]) => [k, v / bandHours(k)]);
+  let a = null;
+  if (avg) { const raw = avg.map((v, i) => v / bandHours(arr[i]?.[0])), t = raw.reduce((s, v) => s + v, 0) || 1; a = raw.map((v) => Math.round(v / t * 1000) / 10); }
+  return [ph, a];
+}
 function flpopCard(t, x, near) {
+  const [tmPH, tmAvg] = perHour(x.시간, x.서울평균?.시간);
   const q = `${String(x.분기).slice(0, 4)}년 ${String(x.분기).slice(4)}분기`;
   const tot = (a) => a.reduce((s, [, v]) => s + v, 0) || 1;
   const topAge = [...x.연령].sort((a, b) => b[1] - a[1]).slice(0, 2).map(([k, v]) => `${k} ${(v / tot(x.연령) * 100).toFixed(0)}%`).join(", ");
-  const topTm = [...x.시간].sort((a, b) => b[1] - a[1])[0];
+  const topTm = [...tmPH].sort((a, b) => b[1] - a[1])[0];
   const we = x.요일.filter(([k]) => k === "토" || k === "일").reduce((a, [, v]) => a + v, 0) / 2, wd = x.요일.filter(([k]) => !"토일".includes(k)).reduce((a, [, v]) => a + v, 0) / 5;
   const fem = x.총 ? x.여 / (x.남 + x.여) * 100 : null;
   FL_SUM = `유동인구(서울시 상권분석서비스, ${q}, ${t.n} ${t.t}): 분기 합계 ${x.총.toLocaleString()}명(서울 ${x.순위}위), 여성 ${fem?.toFixed(0)}%, 많은 연령대 ${topAge}, 가장 붐비는 시간 ${topTm?.[0]}, 주말 하루 평균은 평일의 ${wd ? Math.round(we / wd * 100) : "-"}%`;
@@ -657,7 +666,7 @@ function flpopCard(t, x, near) {
   </div>
   <div class="grid" style="margin-top:12px;grid-template-columns:repeat(auto-fit,minmax(240px,1fr))">
     <div><b style="font-size:14px">연령대</b>${bars(x.연령, x.서울평균?.연령, "var(--accent)")}</div>
-    <div><b style="font-size:14px">시간대</b>${bars(x.시간, x.서울평균?.시간, "#c98a2b")}</div>
+    <div><b style="font-size:14px">시간대 <span class="muted" style="font-weight:400">(시간당으로 환산)</span></b>${bars(tmPH, tmAvg, "#c98a2b")}</div>
     <div><b style="font-size:14px">요일</b>${bars(x.요일, x.서울평균?.요일, "#5a7fb5")}</div>
   </div>
   <div class="note">막대는 이 상권의 구성비, 검은 세로선과 괄호는 서울 전체 상권 평균이에요. 통신사 자료로 추정한 '길 위의 생활인구'라 실제 방문객 수와는 달라요. 출처: 서울시 상권분석서비스(서울신용보증재단), 공공누리 1유형.</div></div>`;
@@ -677,24 +686,27 @@ async function loadLand(d) {
     const r = await fetch(`/api/landuse?pnu=${pnu}`); const x = await r.json();
     if (DATA !== d) return;
     if (!r.ok) throw new Error(x.안내 || "토지이용계획을 불러오지 못했어요");
-    box.innerHTML = landCard(x);
+    box.innerHTML = landCard(x, d);
   } catch (e) { box.innerHTML = `<div class="card"><h2>토지이용계획</h2><div class="err">${esc(e.message)}</div></div>`; }
 }
-function landCard(x) {
+function landCard(x, d) {
   if (x.결과 !== "완료") return `<div class="card"><h2>토지이용계획</h2><p class="muted">${esc(x.안내 || "정보 없음")}</p></div>`;
   const t = x.토지 || {}, z = x.지역지구 || [];
   const main = z.filter((v) => /지역$/.test(v.이름) && /주거|상업|공업|녹지|관리|농림|자연환경/.test(v.이름) && v.저촉 !== "접합");
   const yong = t.용도지역 || main.map((v) => v.이름).join(", ") || "-";
   LAND_HINTS = x.풀이 || [];
   LAND_SUM = `토지이용계획(브이월드): 용도지역 ${yong} / 지목 ${t.지목 || "-"} / 토지면적 ${t.면적 ?? "-"}㎡ / 개별공시지가 ${t.공시지가 ? t.공시지가.toLocaleString() + "원/㎡(" + t.기준연도 + ")" : "-"} / 지역·지구: ${z.map((v) => v.이름 + (v.저촉 ? `(${v.저촉})` : "")).join(", ") || "없음"}` + (x.풀이?.length ? ` / 주의: ${x.풀이.join(" ")}` : "");
+  const plat = Math.max(0, ...((d?.건물 || []).map((b) => Number(b.plat_area ?? b.raw?.platArea) || 0)));
+  const multi = plat > 0 && t.면적 > 0 && plat > t.면적 * 1.3;
   const pill = (v) => `<span class="pill ${v.저촉 === "접합" ? "ok" : "mid"}" style="margin:2px 4px 2px 0;display:inline-block">${esc(v.이름)}${v.저촉 ? ` · ${esc(v.저촉)}` : ""}</span>`;
   return `<div class="card"><h2>토지이용계획 <span class="muted">브이월드(국토교통부) · 필지 ${esc(x.pnu)}</span></h2>
   <div class="grid">
     <div class="kv"><b>용도지역</b><span class="big">${esc(yong)}</span></div>
     <div class="kv"><b>지목 · 토지면적</b><span>${esc(t.지목 || "-")} · ${t.면적 ? Number(t.면적).toLocaleString() + "㎡" : "-"}</span><b>${t.면적 ? (t.면적 / 3.3058).toFixed(1) + "평" : ""}</b></div>
-    <div class="kv"><b>개별공시지가</b><span>${t.공시지가 ? t.공시지가.toLocaleString() + "원/㎡" : "-"}</span><b>${t.기준연도 ? t.기준연도 + "년 기준" : ""}${t.공시지가 && t.면적 ? " · 토지 전체 약 " + won(t.공시지가 * t.면적 / 1e4) + "원" : ""}</b></div>
+    <div class="kv"><b>개별공시지가</b><span>${t.공시지가 ? t.공시지가.toLocaleString() + "원/㎡" : "-"}</span><b>${t.기준연도 ? t.기준연도 + "년 기준" : ""}${t.공시지가 && (multi ? plat : t.면적) ? ` · 토지 전체 약 ${won(t.공시지가 * (multi ? plat : t.면적) / 1e4)}원${multi ? "(대지면적 기준 추정)" : ""}` : ""}</b></div>
     <div class="kv"><b>이용상황 · 도로</b><span>${esc(t.이용상황 || "-")}</span><b>${esc(t.도로접면 || "")}${t.지형 ? " · " + esc(t.지형) : ""}</b></div>
   </div>
+  ${multi ? `<div class="note" style="background:var(--warn-soft);color:var(--warn);margin-top:10px">이 건물은 <b>여러 필지</b>에 걸쳐 있어요. 건축물대장의 대지면적은 <b>${plat.toLocaleString()}㎡(${(plat / 3.3058).toFixed(0)}평)</b>인데, 위 지목·면적·공시지가는 대표 지번 한 필지(${Number(t.면적).toLocaleString()}㎡)만 조회한 값이에요. 토지 전체 공시지가 합계는 대지면적 × 이 필지 단가로 어림했고, 필지마다 단가가 다를 수 있어요.</div>` : ""}
   ${z.length ? `<h2 style="margin-top:16px;font-size:15px">이 땅에 걸린 지역·지구·구역 ${z.length}개</h2><div>${z.map(pill).join("")}</div>` : ""}
   ${x.풀이?.length ? `<div class="note" style="background:var(--warn-soft);color:var(--warn)">${x.풀이.map((h) => "• " + esc(h)).join("<br>")}</div>` : ""}
   <div class="note">"포함"은 필지 안에 있음, "저촉"은 일부가 걸림, "접합"은 경계에 맞닿음이에요. 실제 허용 업종·건축 가능 여부는 토지이음(eum.go.kr)의 행위제한 내용과 구청 확인이 필요합니다.</div></div>`;
@@ -729,10 +741,15 @@ function offiCard(d, x) {
   const wol = sr.filter((r) => r.monthly_10k > 0), jeon = sr.filter((r) => !r.monthly_10k);
   const sP = medOf(st.map((t) => t.ppm2)), sMon = medOf(wol.map((r) => r.monthly_10k)), sDep = medOf(wol.map((r) => r.deposit_10k));
   const sMonM2 = medOf(wol.map((r) => r.area ? r.monthly_10k / r.area : null)), sJ = medOf(jeon.map((r) => r.deposit_10k));
+  const conv = (r) => (r.monthly_10k || 0) + (r.deposit_10k || 0) * 0.005;   // 보증금 연 6% → 월세 환산(만원)
+  const sConvM2 = medOf(sr.map((r) => r.area ? conv(r) / r.area : null)), sConv = medOf(sr.map(conv));
+  const dc = x.동환산 || {};
   const dn = esc(d.동), nm = x.이름 ? esc(x.이름) : "같은 지번";
   const pp = (v) => v == null ? "-" : `${won(v)}원/㎡ · ${won(v * 3.3058)}원/평`;
-  const yr = sP && sMon ? (sMon * 12 / (medOf(st.map((t) => t.deal_amount_10k)) - (sDep || 0)) * 100) : null;
-  OFFI_SUM = `오피스텔 실거래(전용면적 기준, 최근 1년 ${d.동}): 매매 ㎡당 중간값 ${dm.med ? won(dm.med) + "원" : "없음"}(${dm.n || 0}건), 월세 중간 보증금 ${dw.dep ? won(dw.dep) + "원" : "-"}/월 ${dw.mon ? won(dw.mon) + "원" : "-"}(${dw.n || 0}건, ㎡당 월세 ${dw.mon_m2 ?? "-"}만원), 전세 중간 ${dj.dep ? won(dj.dep) + "원" : "-"}(${dj.n || 0}건)`
+  // 단순 수익률(세전·공실 제외) = ㎡당 환산월세 × 12 ÷ ㎡당 매매가 — 이 건물 자료가 모자라면 동 전체로
+  const yrB = sP && sConvM2 ? sConvM2 * 12 / sP * 100 : null, yrD = dm.med && dc.conv_m2 ? dc.conv_m2 * 12 / dm.med * 100 : null;
+  const yr = yrB ?? yrD;
+  OFFI_SUM = `오피스텔 실거래(전용면적 기준, 최근 1년 ${d.동}): 환산월세(보증금 연6% 환산) ㎡당 ${dc.conv_m2 ?? "-"}만원·중간 ${dc.conv ?? "-"}만원/월, 단순수익률 ${yr ? yr.toFixed(1) + "%" : "-"}; 매매 ㎡당 중간값 ${dm.med ? won(dm.med) + "원" : "없음"}(${dm.n || 0}건), 월세 중간 보증금 ${dw.dep ? won(dw.dep) + "원" : "-"}/월 ${dw.mon ? won(dw.mon) + "원" : "-"}(${dw.n || 0}건, ㎡당 월세 ${dw.mon_m2 ?? "-"}만원), 전세 중간 ${dj.dep ? won(dj.dep) + "원" : "-"}(${dj.n || 0}건)`
     + (st.length ? `. ${nm} 매매: ` + st.slice(0, 8).map((t) => `${t.deal_date} ${t.floor}층 ${t.area}㎡ ${won(t.deal_amount_10k)}원`).join("; ") : "")
     + (sr.length ? `. ${nm} 임대: ` + sr.slice(0, 10).map((r) => `${r.deal_date} ${r.floor}층 ${r.area}㎡ 보증금 ${won(r.deposit_10k)}${r.monthly_10k ? "/월 " + won(r.monthly_10k) : "(전세)"}`).join("; ") : "");
   const tRow = (t) => `<tr><td>${t.deal_date}</td><td>${esc(t.floor || "")}</td><td class="num">${t.area ?? ""}㎡</td><td class="num">${won(t.deal_amount_10k)}</td><td class="num">${t.ppm2 ? won(t.ppm2) : "-"}</td></tr>`;
@@ -742,17 +759,19 @@ function offiCard(d, x) {
     <div class="kv"><b>이 건물 매매 ㎡당 중간값</b><span class="big">${sP ? won(sP) + "원" : "-"}</span><b>${st.length}건 · ${sP ? won(sP * 3.3058) + "원/평" : ""}</b></div>
     <div class="kv"><b>이 건물 월세 중간값</b><span class="big">${sMon ? `${won(sDep)} / ${won(sMon)}` : "-"}</span><b>${wol.length}건 · 보증금/월세${sMonM2 ? ` · ㎡당 월 ${sMonM2.toFixed(2)}만` : ""}</b></div>
     <div class="kv"><b>이 건물 전세 중간값</b><span>${sJ ? won(sJ) + "원" : "-"}</span><b>${jeon.length}건</b></div>
-    ${yr && yr > 0 && yr < 30 ? `<div class="kv"><b>단순 임대수익률(참고)</b><span>${yr.toFixed(1)}%</span><b>월세×12 ÷ (매매가−보증금), 세금·관리비 제외</b></div>` : ""}
+    <div class="kv"><b>이 건물 환산월세 (보증금 포함)</b><span class="big">${sConv ? won(sConv) + "/월" : "-"}</span><b>${sr.length}건 · ㎡당 월 ${sConvM2 ? sConvM2.toFixed(2) + "만" : "-"} · 보증금은 연 6%로 월세 환산</b></div>
+    ${yr && yr > 0 && yr < 30 ? `<div class="kv"><b>단순 임대수익률(참고)</b><span>${yr.toFixed(1)}%</span><b>${yrB ? "이 건물" : `${dn} 전체`} ㎡당 환산월세×12 ÷ ㎡당 매매가 · 세금·관리비·공실 제외</b></div>` : ""}
   </div>` : `<p class="muted">이 지번으로 신고된 오피스텔 거래는 아직 없어요. 아래 ${dn} 전체 값을 참고하세요.</p>`}
   <h2 style="margin-top:18px;font-size:15px">비교: ${dn} 오피스텔 전체 (최근 1년)</h2>
   <div class="grid">
     <div class="kv"><b>매매 ㎡당 중간값</b><span>${pp(dm.med)}</span><b>${dm.n || 0}건${dm.q1 ? ` · 가운데 절반 ${won(dm.q1)}~${won(dm.q3)}` : ""}</b></div>
     <div class="kv"><b>월세 중간값 (보증금/월세)</b><span>${dw.mon ? `${won(dw.dep)} / ${won(dw.mon)}` : "-"}</span><b>${dw.n || 0}건${dw.mon_m2 ? ` · ㎡당 월 ${dw.mon_m2}만` : ""}</b></div>
     <div class="kv"><b>전세 중간값</b><span>${dj.dep ? won(dj.dep) + "원" : "-"}</span><b>${dj.n || 0}건${dj.dep_m2 ? ` · ㎡당 ${won(dj.dep_m2)}` : ""}</b></div>
+    <div class="kv"><b>환산월세 (월세·전세 모두 보증금 환산)</b><span>${dc.conv ? won(dc.conv) + "/월" : "-"}</span><b>${dc.n || 0}건${dc.conv_m2 ? ` · ㎡당 월 ${Number(dc.conv_m2).toFixed(2)}만` : ""}${yrD && yrD < 30 ? ` · 동 전체 단순수익률 ${yrD.toFixed(1)}%` : ""}</b></div>
   </div>
   ${st.length ? `<h2 style="margin-top:18px">이 건물 매매 ${st.length}건</h2><div class="scroll"><table><thead><tr><th>계약일</th><th>층</th><th class="num">전용</th><th class="num">금액</th><th class="num">㎡당</th></tr></thead><tbody>${st.slice(0, 15).map(tRow).join("")}</tbody></table></div>` : ""}
   ${sr.length ? `<h2 style="margin-top:18px">이 건물 전월세 ${sr.length}건</h2><div class="scroll"><table><thead><tr><th>계약일</th><th>층</th><th class="num">전용</th><th class="num">보증금</th><th class="num">월세</th></tr></thead><tbody>${sr.slice(0, 20).map(rRow).join("")}</tbody></table></div>` : ""}
-  <div class="note">오피스텔 면적은 전용면적이라 상가 실거래(건물면적)와 ㎡당 값을 바로 비교하면 안 됩니다. 해제된 매매는 뺐고, 신고 금액의 통계 참고값이며 감정평가가 아닙니다.</div></div>`;
+  <div class="note">월세와 보증금은 따로 구한 중간값이라 실제 계약 하나와 다를 수 있어서, 보증금을 연 6%로 월세에 더한 <b>환산월세</b>로 비교하세요. 오피스텔 면적은 전용면적이라 상가 실거래(건물면적)와 ㎡당 값을 바로 비교하면 안 됩니다. 해제된 매매는 뺐고, 신고 금액의 통계 참고값이며 감정평가가 아닙니다.</div></div>`;
 }
 
 // ── 주변 점포 (소상공인시장진흥공단 상가정보)
