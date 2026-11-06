@@ -221,7 +221,7 @@ footer{margin-top:40px;font-size:12px;color:var(--sub)}
 </div>
 <button id="chatBtn" type="button">💬 AI에게 질문</button>
 <div id="chat" role="dialog" aria-label="AI 상담">
-  <header><b>AI 상담 <span style="font-weight:400;font-size:12px;opacity:.85">화면 자료를 보고 답해요</span></b><button type="button" id="cx" aria-label="닫기">✕</button></header>
+  <header><b>AI 상담 <span style="font-weight:400;font-size:12px;opacity:.85">화면 자료를 보고 답해요</span></b><span style="display:flex;gap:4px;align-items:center"><button type="button" id="cnew" style="font-size:13px;border:1px solid rgba(255,255,255,.5);border-radius:8px;padding:3px 8px" title="대화를 지우고 새로 시작">새 상담</button><button type="button" id="cx" aria-label="닫기">✕</button></span></header>
   <div id="cm"></div>
   <form id="cf"><textarea id="ci" placeholder="예: 이 호실에 카페 차려도 되나요?" rows="1"></textarea><button type="submit" id="cs">보내기</button></form>
   <div id="cn">AI 답변은 참고용이며 감정평가·법률자문이 아닙니다. 중요한 결정 전 전문가·구청에 확인하세요.</div>
@@ -966,7 +966,8 @@ async function supSearch() {
   const seq = ++SUP_SEQ, out = $("#supOut"), q = $("#supQ").value.trim();
   out.innerHTML = `<div class="card muted">${esc(SUP_REG)} 지원사업 공고를 찾는 중… (기업마당 자료를 읽느라 몇 초 걸려요)</div>`;
   try {
-    const r = await fetch(`/api/account?support=1&orgs=1&limit=30&region=${encodeURIComponent(SUP_REG)}&q=${encodeURIComponent(q)}`), x = await r.json();
+    const r = await fetch(`/api/account?support=1&orgs=1&limit=30&region=${encodeURIComponent(SUP_REG)}&q=${encodeURIComponent(q)}`);
+    const x = await r.json().catch(() => ({ 오류: r.status === 504 ? "기업마당 응답이 늦어요. 잠시 뒤 다시 눌러 주세요." : `공고를 불러오지 못했어요(${r.status}). 잠시 뒤 다시 눌러 주세요.` }));
     if (seq !== SUP_SEQ) return;
     if (!r.ok) throw new Error(x.오류 || "공고를 불러오지 못했어요");
     const L = x.공고 || [];
@@ -992,35 +993,47 @@ let SB = null, USER = null, PROFILE = null, WATCH = new Map(), WATCH_ALERTS = nu
 async function initAuth() {
   try {
     const c = await fetch("/api/account?config=1").then((r) => r.json());
-    if (!c.로그인 || !window.supabase) { $("#userBox").innerHTML = ""; return; }
+    if (!c.로그인 || !window.supabase) { $("#userBox").innerHTML = ""; WATCH = new Map(guestWatch().map((w) => [w.item_id, w])); $("#tabWatch").hidden = !WATCH.size; return; }
     SB = window.supabase.createClient(c.url, c.key, { auth: { persistSession: true, detectSessionInUrl: true, flowType: "pkce" } });
     SB.auth.onAuthStateChange((_e, session) => { ACCESS = session?.access_token || null; const u = session?.user || null; if (u?.id !== USER?.id || _e === "SIGNED_OUT") { USER = u; afterAuth(); } });
     const { data } = await SB.auth.getSession(); ACCESS = data.session?.access_token || null; USER = data.session?.user || null; afterAuth();
   } catch { $("#userBox").innerHTML = ""; }
 }
+// 비회원 관심 물건: 이 기기(브라우저)에만 저장. 로그인하면 회원 목록으로 옮김
+const GW_KEY = "guest_watch_v1";
+function guestWatch() { try { const a = JSON.parse(localStorage.getItem(GW_KEY) || "[]"); return Array.isArray(a) ? a : []; } catch { return []; } }
+function saveGuestWatch() { try { localStorage.setItem(GW_KEY, JSON.stringify([...WATCH.values()].slice(0, 100))); } catch {} }
 let AUTH_DONE = 0;
 async function afterAuth() {
   const tok = ++AUTH_DONE;
-  if (!USER) { PROFILE = null; WATCH = new Map(); drawUser(); refreshStar(); return; }
+  WATCH_ALERTS = null;
+  if (!USER) { PROFILE = null; WATCH = new Map(guestWatch().map((w) => [w.item_id, w])); drawUser(); refreshStar(); if (WATCH.size) loadAlerts().catch(() => {}); return; }
+  // 이 기기에 담아 둔 물건을 회원 목록으로 옮김
+  const local = guestWatch();
+  if (local.length) {
+    const { error } = await SB.from("watchlist").upsert(local.map((w) => ({ item_id: w.item_id, src: w.src, title: w.title, sale_date: w.sale_date, min_price: w.min_price, added_at: w.added_at })), { onConflict: "user_id,item_id", ignoreDuplicates: true });
+    if (!error) { try { localStorage.removeItem(GW_KEY); } catch {} alertBox(`이 기기에 담아 둔 관심 물건 ${local.length}건을 회원 목록으로 옮겼어요.`); }
+  }
   const [{ data: prof }, { data: wl }] = await Promise.all([SB.from("profiles").select("*").eq("id", USER.id).maybeSingle(), SB.from("watchlist").select("*").order("added_at", { ascending: false })]);
   if (tok !== AUTH_DONE) return;
   PROFILE = prof; WATCH = new Map((wl || []).map((w) => [w.item_id, w]));
   drawUser(); refreshStar(); loadAlerts();
+  loadChatHistory();
 }
 function nick() { return PROFILE?.nickname || USER?.user_metadata?.name || USER?.user_metadata?.nickname || "회원"; }
 function drawUser(newCnt) {
   const box = $("#userBox"); if (!box) return;
-  $("#tabWatch").hidden = !USER;
+  $("#tabWatch").hidden = !USER && !WATCH.size;
   if (!SB) { box.innerHTML = ""; return; }
   box.innerHTML = USER
     ? `<span class="muted">${esc(nick())}님${PROFILE?.tier === "paid" ? " · 유료회원" : ""}</span><button type="button" class="star" onclick="setMode('watch')">⭐ 관심 ${WATCH.size}${newCnt ? ` <b style="color:var(--bad)">· 새 소식 ${newCnt}</b>` : ""}</button><button type="button" style="background:none;color:var(--sub);border:1px solid var(--line)" onclick="logout()">로그아웃</button>`
-    : `<button type="button" class="kakao" onclick="login()">카카오로 시작하기</button>`;
+    : `${WATCH.size ? `<button type="button" class="star" onclick="setMode('watch')">⭐ 관심 ${WATCH.size}</button>` : ""}<button type="button" class="kakao" onclick="login()">카카오로 시작하기</button>`;
 }
 async function login() {
   if (!SB) return alertBox("로그인을 아직 쓸 수 없어요.");
   await SB.auth.signInWithOAuth({ provider: "kakao", options: { redirectTo: location.origin + location.pathname + location.search } });
 }
-async function logout() { if (SB) await SB.auth.signOut(); USER = null; ACCESS = null; afterAuth(); if (!$("#watchPanel").hidden) goHome(); }
+async function logout() { if (SB) await SB.auth.signOut(); USER = null; ACCESS = null; CHAT.length = 0; CHAT_LOADED = false; chatDraw(false); afterAuth(); if (!$("#watchPanel").hidden) goHome(); }
 function alertBox(msg) { const d = document.createElement("div"); d.className = "note"; d.style.cssText = "position:fixed;left:50%;top:16px;transform:translateX(-50%);z-index:99;box-shadow:0 6px 20px rgba(0,0,0,.15);max-width:92vw"; d.innerHTML = msg; document.body.appendChild(d); setTimeout(() => d.remove(), 3500); }
 
 // 경매 물건 화면의 ☆ 버튼
@@ -1028,7 +1041,16 @@ function starBtn(a) { const on = WATCH.has(a.id); return `<button type="button" 
 function refreshStar() { const el = $("#starSlot"); if (el && AUC) el.innerHTML = starBtn(AUC); }
 async function toggleStar() {
   const a = AUC; if (!a) return;
-  if (!USER) { alertBox(`관심 물건은 로그인하면 저장돼요. <a href="#" onclick="event.preventDefault();login()">카카오로 시작하기</a>`); return; }
+  if (!USER) {
+    if (WATCH.has(a.id)) WATCH.delete(a.id);
+    else {
+      if (WATCH.size >= 100) return alertBox("이 기기에는 100건까지 담을 수 있어요.");
+      const now = new Date().toISOString();
+      WATCH.set(a.id, { item_id: a.id, src: a.src === "onbid" ? "onbid" : "court", title: `${a.print_case_no} · ${a.lot_address || a.address || ""}`.slice(0, 200), sale_date: a.sale_date || null, min_price: a.min_price || null, added_at: now, seen_at: now });
+      alertBox(`⭐ 이 기기에 담았어요. <a href="#" onclick="event.preventDefault();login()">카카오로 로그인</a>하면 다른 기기에서도 보고 새 소식을 알려 드려요.`);
+    }
+    saveGuestWatch(); WATCH_ALERTS = null; refreshStar(); drawUser(); loadAlerts().catch(() => {}); return;
+  }
   if (WATCH.has(a.id)) {
     await SB.from("watchlist").delete().eq("item_id", a.id); WATCH.delete(a.id);
   } else {
@@ -1042,7 +1064,8 @@ async function toggleStar() {
 
 // 관심 물건의 변화 찾기 (공개 표를 직접 읽음)
 async function loadAlerts() {
-  if (!USER || !WATCH.size) { WATCH_ALERTS = []; drawUser(); return; }
+  if (!WATCH.size) { WATCH_ALERTS = []; drawUser(); return; }
+  if (!SB) { WATCH_ALERTS = [...WATCH.values()].map((w) => ({ w, cur: null, A: [] })); drawUser(); if (!$("#watchPanel").hidden) renderWatch(); return; }
   const ws = [...WATCH.values()], court = ws.filter((w) => w.src !== "onbid").map((w) => w.item_id), ob = ws.filter((w) => w.src === "onbid").map((w) => w.item_id.replace(/^OB:/, ""));
   const mng = [...new Set(ob.map((id) => id.split("-").slice(0, 3).join("-")))];
   const [ai, ar, oi, orr] = await Promise.all([
@@ -1089,19 +1112,21 @@ async function loadAlerts() {
 }
 function renderWatch() {
   const box = $("#watchOut"); if (!box) return;
-  if (!USER) { box.innerHTML = `<div class="card">관심 물건은 로그인하면 쓸 수 있어요. <button type="button" class="kakao" onclick="login()">카카오로 시작하기</button></div>`; return; }
+  if (!USER && !WATCH.size) { box.innerHTML = `<div class="card">경매·공매 물건을 열고 <b>☆ 관심 물건 추가</b>를 누르면 이 기기에 담아 둘 수 있어요. 로그인하면 다른 기기에서도 보고 새 소식을 알려 드려요. <button type="button" class="kakao" onclick="login()">카카오로 시작하기</button></div>`; return; }
   if (!WATCH.size) { box.innerHTML = `<div class="card"><h2>⭐ 관심 물건</h2><p class="muted">아직 없어요. 경매·공매 물건을 열고 오른쪽 위 <b>☆ 관심 물건 추가</b>를 누르면 여기에 모이고, 매각기일 임박·낙찰가·유찰·기일 변경을 알려 드려요.</p></div>`; return; }
-  if (!WATCH_ALERTS || WATCH_ALERTS.length !== WATCH.size) { box.innerHTML = `<div class="card muted">관심 물건을 확인하는 중…</div>`; WATCH_ALERTS = null; loadAlerts().catch((e) => { box.innerHTML = `<div class="card"><div class="err">관심 물건을 불러오지 못했어요: ${esc(e.message)}</div></div>`; }); return; }
+  if (!WATCH_ALERTS || WATCH_ALERTS.length !== WATCH.size) { box.innerHTML = `<div class="card muted">관심 물건을 확인하는 중…</div>`; WATCH_ALERTS = null; loadAlerts().catch((e) => { if (!USER) { WATCH_ALERTS = [...WATCH.values()].map((w) => ({ w, cur: null, A: [] })); renderWatch(); return; } box.innerHTML = `<div class="card"><div class="err">관심 물건을 불러오지 못했어요: ${esc(e.message)}</div></div>`; }); return; }
   box.innerHTML = `<div class="card"><h2>⭐ 관심 물건 <span class="muted">${WATCH.size}건 · 매각기일 3일 전, 낙찰·유찰 결과, 기일·최저가 변경을 보여 드려요</span></h2>
+    ${USER ? "" : `<div class="note" style="margin:0 0 10px">이 목록은 <b>이 기기(브라우저)에만</b> 저장돼 있어요. 브라우저 기록을 지우면 사라질 수 있어요. <a href="#" onclick="event.preventDefault();login()">카카오로 로그인</a>하면 회원 목록으로 옮겨지고, 다른 기기에서도 보고, 위쪽에 새 소식 표시가 떠요.</div>`}
     <div class="wl">${WATCH_ALERTS.map(({ w, cur, A }) => `<div class="it" data-id="${esc(w.item_id)}" style="display:block">
       <div style="display:flex;justify-content:space-between;gap:8px"><b>${esc(w.title || w.item_id)}</b><span class="muted" style="white-space:nowrap">${w.src === "onbid" ? "공매" : "경매"}${cur?.min_price ? " · 최저 " + wonW(cur.min_price) : ""}</span></div>
-      <div>${A.length ? A.map((x) => `<span class="alert${x.hot ? " hot" : ""}${x.new ? " new" : ""}">${esc(x.t)}</span>`).join("") : `<span class="muted" style="font-size:13px">변화 없음 · ${esc(cur?.sale_date || "")}</span>`}</div>
+      <div>${A.length ? A.map((x) => `<span class="alert${x.hot ? " hot" : ""}${x.new ? " new" : ""}">${esc(x.t)}</span>`).join("") : `<span class="muted" style="font-size:13px">변화 없음 · ${esc(cur?.sale_date || w.sale_date || "")}</span>`}</div>
       <div style="margin-top:4px"><a href="#" onclick="event.stopPropagation();event.preventDefault();unwatch('${esc(w.item_id)}')" class="muted" style="font-size:12px">관심 해제</a></div></div>`).join("")}</div></div>`;
   box.querySelectorAll(".it").forEach((el) => el.onclick = () => openById(el.dataset.id));
   // 본 것으로 표시
+  if (!USER) { for (const w of WATCH.values()) w.seen_at = new Date().toISOString(); saveGuestWatch(); return; }
   SB.from("watchlist").update({ seen_at: new Date().toISOString() }).eq("user_id", USER.id).then(() => { for (const w of WATCH.values()) w.seen_at = new Date().toISOString(); });
 }
-async function unwatch(id) { await SB.from("watchlist").delete().eq("item_id", id); WATCH.delete(id); WATCH_ALERTS = WATCH_ALERTS?.filter((o) => o.w.item_id !== id) || null; drawUser(); renderWatch(); }
+async function unwatch(id) { if (USER) await SB.from("watchlist").delete().eq("item_id", id); WATCH.delete(id); if (!USER) saveGuestWatch(); WATCH_ALERTS = WATCH_ALERTS?.filter((o) => o.w.item_id !== id) || null; drawUser(); renderWatch(); }
 async function openById(id) {
   const x = await fetch("/api/auctions?id=" + encodeURIComponent(id)).then((r) => r.json()).catch(() => ({}));
   if (x.item) openAuc(x.item); else alertBox("이 물건은 지금 목록에 없어요(종결·취하 등).");
@@ -1571,10 +1596,41 @@ async function chatSend(q) {
     const x = await r.json();
     if (!r.ok) throw new Error(x.오류 || "AI 상담 오류");
     CHAT.push({ role: "assistant", content: x.답변 + (x.남은횟수 <= 3 ? `\n\n(오늘 남은 질문 ${x.남은횟수}번)` : ""), items: x.물건 || null, total: x.찾은건수 || 0, links: x.지원기관 || null, programs: x.공고 || null, areas: x.상권 || null });
+    saveChatHistory();
   } catch (e) {
     CHAT.pop(); CHAT.push({ role: "user", content: q }); CHAT.push({ role: "assistant", content: "⚠️ " + e.message });
   } finally { $("#cs").disabled = false; chatDraw(false); }
 }
+// ── 회원 AI 상담 기록: 마지막 대화를 저장해 두었다가 다음에 들어와도 이어 봄 ─────
+let CHAT_LOADED = false, CHAT_SAVE_T = null;
+const slimMsg = (m) => ({ role: m.role, content: String(m.content).slice(0, 6000),
+  ...(m.items?.length ? { items: m.items.slice(0, 8).map((i) => ({ id: i.id, print_case_no: i.print_case_no, sigungu: i.sigungu, dong: i.dong, building_name: i.building_name, floor: i.floor, pyeong: i.pyeong, area_m2: i.area_m2, min_price: i.min_price, fail_count: i.fail_count, sale_date: i.sale_date, risky: i.risky })), total: m.total || 0 } : {}),
+  ...(m.programs?.length ? { programs: m.programs.slice(0, 8).map((g) => ({ title: g.title, org: g.org, end: g.end, target: g.target, url: g.url })) } : {}),
+  ...(m.links?.length ? { links: m.links.slice(0, 10) } : {}), ...(m.areas ? { areas: m.areas } : {}) });
+async function loadChatHistory() {
+  if (!USER || CHAT_LOADED) return; CHAT_LOADED = true;
+  const { data, error } = await SB.from("chat_history").select("messages,updated_at").eq("user_id", USER.id).maybeSingle();
+  if (error || !data?.messages?.length) return;
+  const old = data.messages.filter((m) => m && m.role && m.content);
+  if (!old.length) return;
+  const when = new Date(data.updated_at).toLocaleString("ko-KR", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  CHAT.unshift({ role: "divider", content: `지난 상담 (${when}) — 이어서 물어보면 앞 내용을 기억해요` }, ...old, ...(CHAT.length ? [{ role: "divider", content: "지금 상담" }] : []));
+  chatDraw(false);
+}
+function saveChatHistory() {
+  if (!USER || !SB) return;
+  clearTimeout(CHAT_SAVE_T);
+  CHAT_SAVE_T = setTimeout(() => {
+    const msgs = CHAT.filter((m) => m.role !== "divider" && !String(m.content).startsWith("⚠️")).slice(-30).map(slimMsg);
+    SB.from("chat_history").upsert({ user_id: USER.id, messages: msgs, updated_at: new Date().toISOString() }).then(() => {});
+  }, 500);
+}
+$("#cnew").onclick = () => {
+  if (CHAT.length && !confirmBox()) return;
+  CHAT.length = 0; chatDraw(false);
+  if (USER && SB) SB.from("chat_history").delete().eq("user_id", USER.id).then(() => {});
+};
+function confirmBox() { return window.confirm("지금까지의 상담 내용을 지우고 새로 시작할까요?"); }
 async function shareAnswer(i, btn) {
   const m = CHAT[i]; if (!m) return;
   let q = ""; for (let k = i - 1; k >= 0; k--) if (CHAT[k].role === "user") { q = CHAT[k].content; break; }
