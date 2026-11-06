@@ -983,7 +983,7 @@ async function toggleStar() {
     if (error) { alertBox("저장하지 못했어요: " + esc(error.message)); return; }
     WATCH.set(a.id, data); alertBox("⭐ 관심 물건에 넣었어요. 매각기일·결과가 바뀌면 '관심 물건'에서 알려 드려요.");
   }
-  refreshStar(); drawUser();
+  WATCH_ALERTS = null; refreshStar(); drawUser(); loadAlerts().catch(() => {});
 }
 
 // 관심 물건의 변화 찾기 (공개 표를 직접 읽음)
@@ -1037,7 +1037,7 @@ function renderWatch() {
   const box = $("#watchOut"); if (!box) return;
   if (!USER) { box.innerHTML = `<div class="card">관심 물건은 로그인하면 쓸 수 있어요. <button type="button" class="kakao" onclick="login()">카카오로 시작하기</button></div>`; return; }
   if (!WATCH.size) { box.innerHTML = `<div class="card"><h2>⭐ 관심 물건</h2><p class="muted">아직 없어요. 경매·공매 물건을 열고 오른쪽 위 <b>☆ 관심 물건 추가</b>를 누르면 여기에 모이고, 매각기일 임박·낙찰가·유찰·기일 변경을 알려 드려요.</p></div>`; return; }
-  if (!WATCH_ALERTS) { box.innerHTML = `<div class="card muted">관심 물건을 확인하는 중…</div>`; loadAlerts(); return; }
+  if (!WATCH_ALERTS || WATCH_ALERTS.length !== WATCH.size) { box.innerHTML = `<div class="card muted">관심 물건을 확인하는 중…</div>`; WATCH_ALERTS = null; loadAlerts().catch((e) => { box.innerHTML = `<div class="card"><div class="err">관심 물건을 불러오지 못했어요: ${esc(e.message)}</div></div>`; }); return; }
   box.innerHTML = `<div class="card"><h2>⭐ 관심 물건 <span class="muted">${WATCH.size}건 · 매각기일 3일 전, 낙찰·유찰 결과, 기일·최저가 변경을 보여 드려요</span></h2>
     <div class="wl">${WATCH_ALERTS.map(({ w, cur, A }) => `<div class="it" data-id="${esc(w.item_id)}" style="display:block">
       <div style="display:flex;justify-content:space-between;gap:8px"><b>${esc(w.title || w.item_id)}</b><span class="muted" style="white-space:nowrap">${w.src === "onbid" ? "공매" : "경매"}${cur?.min_price ? " · 최저 " + wonW(cur.min_price) : ""}</span></div>
