@@ -631,6 +631,21 @@ function areaAuctions(gu, dong) {
   loadAuc(1);
 }
 
+// 직장인구·상주인구 → 점심 장사형인지 동네 장사형인지
+function popBox(x) {
+  const P = x.인구; if (!P || P.오류 || (!P.직장 && !P.상주)) return "";
+  const w = P.직장, r = P.상주, top = (a) => { const t = a.reduce((s, [, v]) => s + v, 0) || 1; return [...a].sort((p, q) => q[1] - p[1]).slice(0, 2).map(([k, v]) => `${k} ${Math.round(v / t * 100)}%`).join(", "); };
+  const ratio = w && r && r.총 ? w.총 / r.총 : null, med = P.서울직주비중간;
+  const kind = ratio == null || !med ? "" : ratio > med * 2 ? "직장인이 많은 <b>점심·퇴근길 상권</b>이에요. 평일 낮 장사가 중요해요." : ratio < med / 2 ? "주민이 많은 <b>동네 상권</b>이에요. 단골·생활 업종이 유리해요." : "직장인과 주민이 섞인 상권이에요.";
+  const q = (y) => y ? `${String(y).slice(0, 4)}년 ${String(y).slice(4)}분기` : "";
+  FL_SUM = (FL_SUM || "") + ` / 직장인구 ${w ? w.총.toLocaleString() + "명(" + top(w.연령) + ")" : "-"}, 상주인구 ${r ? r.총.toLocaleString() + "명, " + r.가구.toLocaleString() + "가구(아파트 " + (r.가구 ? Math.round(r.아파트가구 / r.가구 * 100) : 0) + "%)" : "-"}${ratio ? `, 직장인구÷상주인구 ${ratio.toFixed(2)}(서울 상권 중간 ${med})` : ""}`;
+  return `<div class="grid" style="margin-top:10px">
+    <div class="kv"><b>직장인구 (이 상권에서 일하는 사람)</b><span>${w ? w.총.toLocaleString() + "명" : "-"}</span><b>${w ? top(w.연령) + " · " + q(w.분기) : ""}</b></div>
+    <div class="kv"><b>상주인구 (이 상권에 사는 사람)</b><span>${r ? r.총.toLocaleString() + "명" : "-"}</span><b>${r ? `${r.가구.toLocaleString()}가구 · 아파트 ${r.가구 ? Math.round(r.아파트가구 / r.가구 * 100) : 0}% · ${top(r.연령)}` : ""}</b></div>
+    ${kind ? `<div class="kv"><b>상권 성격</b><span style="font-size:15px">${kind}</span><b>직장인구÷상주인구 ${ratio.toFixed(2)} (서울 상권 중간값 ${med})</b></div>` : ""}
+  </div>`;
+}
+
 function bars(arr, avg, color) {
   const tot = arr.reduce((a, [, v]) => a + v, 0) || 1, mx = Math.max(...arr.map(([, v]) => v / tot * 100), ...(avg || []), 1);
   return `<div style="display:grid;grid-template-columns:auto 1fr auto;gap:4px 8px;align-items:center;font-size:13px">${arr.map(([k, v], i) => {
@@ -664,6 +679,7 @@ function flpopCard(t, x, near) {
     <div class="kv"><b>많이 다니는 연령대</b><span>${esc(topAge)}</span><b>여성 ${fem ? fem.toFixed(0) : "-"}% · 남성 ${fem ? (100 - fem).toFixed(0) : "-"}%</b></div>
     <div class="kv"><b>가장 붐비는 시간</b><span>${esc(topTm?.[0] || "-")}</span><b>주말 하루 평균은 평일의 ${wd ? Math.round(we / wd * 100) : "-"}%</b></div>
   </div>
+  ${popBox(x)}
   <div class="grid" style="margin-top:12px;grid-template-columns:repeat(auto-fit,minmax(240px,1fr))">
     <div><b style="font-size:14px">연령대</b>${bars(x.연령, x.서울평균?.연령, "var(--accent)")}</div>
     <div><b style="font-size:14px">시간대 <span class="muted" style="font-weight:400">(시간당으로 환산)</span></b>${bars(tmPH, tmAvg, "#c98a2b")}</div>
