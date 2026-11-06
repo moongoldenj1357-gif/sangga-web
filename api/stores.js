@@ -49,7 +49,66 @@ const slim = (s) => ({
   주소: s.rdnmAdr || s.lnoAdr || null, lon: Number(s.lon), lat: Number(s.lat),
 });
 
+
+// ── 서울 상권 유동인구(서울시 상권분석서비스 길단위인구-상권, 서울 열린데이터광장) — /api/stores?flpop=<상권코드>
+const SKEY = (process.env.SEOUL_DATA_KEY ?? "").trim();
+const SVC = process.env.SEOUL_FLPOP_SVC || "VwsmTrdarFlpopQq";
+let FLQ = null, FLQ_AT = 0;   // 최근 분기 전체(약 1,650 상권)를 인스턴스 메모리에 보관
+async function seoul(path) {
+  const r = await fetch(`http://openapi.seoul.go.kr:8088/${encodeURIComponent(SKEY)}/json/${path}`, { signal: AbortSignal.timeout(20000) });
+  const t = await r.text();
+  let j; try { j = JSON.parse(t); } catch { throw new Error("서울 열린데이터광장 응답을 읽지 못했어요: " + t.slice(0, 150)); }
+  const body = j[SVC] || j[Object.keys(j)[0]];
+  const code = body?.RESULT?.CODE || j?.RESULT?.CODE, msg = body?.RESULT?.MESSAGE || j?.RESULT?.MESSAGE;
+  if (code && code !== "INFO-000") return { rows: [], total: 0, code, msg };
+  return { rows: body?.row || [], total: Number(body?.list_total_count || 0), code, msg };
+}
+async function latestQuarter() {
+  if (FLQ && Date.now() - FLQ_AT < 12 * 3600_000) return FLQ;
+  const now = new Date(Date.now() + 9 * 3600_000);
+  let y = now.getUTCFullYear(), q = Math.floor(now.getUTCMonth() / 3) + 1, tried = [];
+  for (let i = 0; i < 8; i++) {
+    const yq = `${y}${q}`;
+    const first = await seoul(`${SVC}/1/1000/${yq}`);
+    tried.push(`${yq}:${first.code || "?"}`);
+    if (first.rows.length) {
+      let rows = first.rows;
+      for (let s = 1001; s <= first.total && s < 6000; s += 1000) rows = rows.concat((await seoul(`${SVC}/${s}/${s + 999}/${yq}`)).rows);
+      FLQ = { yq, rows }; FLQ_AT = Date.now(); return FLQ;
+    }
+    if (first.code && /INFO-100|ERROR-3|INFO-300/.test(first.code)) throw new Error(`서울 인증키 문제(${first.code}): ${first.msg || ""}`);
+    q--; if (q === 0) { q = 4; y--; }
+  }
+  throw new Error("최근 2년 유동인구 자료를 찾지 못했어요 (" + tried.join(", ") + ")");
+}
+const num = (v) => Number(v) || 0;
+function pickFl(row) {
+  const ks = Object.keys(row);
+  const get = (re) => ks.filter((k) => re.test(k));
+  const age = get(/^AGRDE_\d+(_ABOVE)?_FLPOP_CO$/).map((k) => [k.match(/\d+/)[0] + (/ABOVE/.test(k) ? "대 이상" : "대"), num(row[k])]);
+  const tm = get(/^TMZON_\d+_\d+_FLPOP_CO$/).map((k) => { const m = k.match(/(\d+)_(\d+)/); return [`${+m[1]}~${+m[2]}시`, num(row[k])]; });
+  const DN = { MON: "월", TUES: "화", WED: "수", THUR: "목", THU: "목", FRI: "금", SAT: "토", SUN: "일" };
+  const wd = get(/^(MON|TUES|WED|THUR|THU|FRI|SAT|SUN)_FLPOP_CO$/).map((k) => [DN[k.split("_")[0]], num(row[k])]);
+  return { 총: num(row.TOT_FLPOP_CO), 남: num(row.ML_FLPOP_CO), 여: num(row.FML_FLPOP_CO), 연령: age, 시간: tm, 요일: wd };
+}
+async function flpop(req, res) {
+  if (!SKEY) return res.status(500).json({ 오류: "Vercel 환경변수 SEOUL_DATA_KEY가 없어요." });
+  const code = String(req.query.flpop);
+  const Q = await latestQuarter();
+  if (req.query.debug) return res.status(200).json({ 분기: Q.yq, 행수: Q.rows.length, 항목: Object.keys(Q.rows[0] || {}) });
+  const row = Q.rows.find((r) => String(r.TRDAR_CD) === code);
+  if (!row) return res.status(404).json({ 오류: `상권 ${code}의 ${Q.yq} 유동인구 자료가 없어요.` });
+  const me = pickFl(row);
+  // 서울 전체 상권 평균 구성비 (비교용)
+  const all = Q.rows.map(pickFl), share = (arr, i) => { const t = arr.reduce((a, [, v]) => a + v, 0); return t ? arr[i][1] / t : 0; };
+  const avgShare = (sel) => me[sel].map((_, i) => Math.round(all.reduce((a, x) => a + share(x[sel], i), 0) / all.length * 1000) / 10);
+  const rank = all.filter((x) => x.총 > me.총).length + 1;
+  res.setHeader("Cache-Control", "s-maxage=604800");
+  return res.status(200).json({ 분기: Q.yq, 상권: row.TRDAR_CD_NM, 구분: row.TRDAR_SE_CD_NM, ...me, 서울평균: { 연령: avgShare("연령"), 시간: avgShare("시간"), 요일: avgShare("요일") }, 순위: `${rank}/${all.length}` });
+}
+
 export default async function handler(req, res) {
+  if (req.query?.flpop) { try { return await flpop(req, res); } catch (e) { return res.status(500).json({ 오류: e.message }); } }
   res.setHeader("Cache-Control", "s-maxage=86400");
   const pnu = String(req.query?.pnu ?? "");
   const radius = Math.min(Math.max(Number(req.query?.radius ?? 300) || 300, 50), 1000);
