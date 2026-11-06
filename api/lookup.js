@@ -445,7 +445,7 @@ async function cached(lot) {
 }
 async function readLot(bjd, bun, ji) {
   const q = `bjd_code=eq.${bjd}&bun=eq.${pad4(bun)}&ji=eq.${pad4(ji)}`;
-  const titles = await sb("GET", `building_titles?${q}&select=mgm_pk,address,road_address,building_name,main_purpose,etc_purpose,structure,total_area,ground_floors,under_floors,approval_date`);
+  const titles = await sb("GET", `building_titles?${q}&select=mgm_pk,address,road_address,building_name,main_purpose,etc_purpose,structure,total_area,ground_floors,under_floors,approval_date,plat_area:raw->>platArea`);
   const units = await sb("GET", `building_units?${q}&select=dong_name,ho_name,floor_name,area_type,purpose,purpose_etc,area&limit=5000`);
   return { titles, units };
 }
