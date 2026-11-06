@@ -13,6 +13,7 @@ const MIN_GAP_MS = 3000;
 const DAILY_CALL_CAP = 320;
 const MIN_RERUN_MS = 8 * 60_000;
 
+import { SIDOS as OB_SIDOS, listPage, resultPage, normItem, normResult } from "../lib/onbid.js";
 const SB_URL = (process.env.SUPABASE_URL ?? "").trim().replace(/\/+$/, "").replace(/\/rest\/v1$/, "");
 const SB_KEY = process.env.SUPABASE_SECRET_KEY ?? "";
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -110,9 +111,52 @@ function toItem(r, today) {
   };
 }
 
+// ── 공매(온비드) 수집: /api/collect-auctions?src=onbid (진행 물건), ?src=onbid_results (전날 개찰 결과), ?src=onbid&debug=1
+async function collectOnbid(req, res) {
+  const started = Date.now(), today = kstDate();
+  if (req.query.debug) {
+    const x = await listPage("서울특별시", 1);
+    return res.status(200).json({ 전체: x.total, 받은수: x.items.length, 첫물건: x.items[0] || null, 응답모양: Object.keys(x.raw || {}) });
+  }
+  if (req.query.src === "onbid_results") {
+    const d = (n) => new Date(Date.now() + 9 * 3600_000 - n * 864e5).toISOString().slice(0, 10).replace(/-/g, "");
+    const from = d(Number(req.query.days || 2)), to = d(0);
+    let saved = 0, calls = 0; const cnt = {};
+    for (const [nm, cd] of OB_SIDOS) {
+      for (let page = 1; page <= 20 && Date.now() - started < 50_000; page++) {
+        const x = await resultPage(nm, from, to, page); calls++;
+        const rows = x.items.map((o) => normResult(o, cd)).filter((r) => r.opbd_at);
+        rows.forEach((r) => (cnt[r.status || "기타"] = (cnt[r.status || "기타"] || 0) + 1));
+        if (rows.length) { await sb("POST", "onbid_results?on_conflict=id,opbd_at", rows, "resolution=merge-duplicates,return=minimal"); saved += rows.length; }
+        if (page * 100 >= x.total || !x.items.length) break;
+      }
+    }
+    const filled = await sb("POST", "rpc/fill_onbid_result_sgg", {}, "return=representation").catch(() => null);
+    return res.status(200).json({ 결과: "완료", 기간: `${from}~${to}`, 저장: saved, 호출: calls, 분류: cnt, 시군구채움: filled });
+  }
+  let [run] = await sb("GET", `onbid_runs?run_date=eq.${today}&select=*`);
+  if (!run) { await sb("POST", "onbid_runs?on_conflict=run_date", { run_date: today }, "resolution=ignore-duplicates"); [run] = await sb("GET", `onbid_runs?run_date=eq.${today}&select=*`); }
+  if (run.done && !req.query.force) return res.status(200).json({ 결과: "오늘 공매 수집은 이미 끝났어요", 저장: run.saved });
+  let { step, page, saved, calls } = run, msg = "";
+  try {
+    while (step < OB_SIDOS.length && Date.now() - started < 50_000) {
+      const [nm, cd] = OB_SIDOS[step];
+      const x = await listPage(nm, page); calls++;
+      const rows = x.items.map((o) => normItem(o, cd, today)).filter((r) => r.cltr_mng_no);
+      if (rows.length) { await sb("POST", "onbid_items?on_conflict=id", rows, "resolution=merge-duplicates,return=minimal"); saved += rows.length; }
+      if (page * 100 >= x.total || !x.items.length) { step++; page = 1; } else page++;
+    }
+  } catch (e) { msg = e.message; }
+  const done = step >= OB_SIDOS.length;
+  if (done) await sb("PATCH", `onbid_items?active=eq.true&last_seen=lt.${today}`, { active: false });
+  await sb("PATCH", `onbid_runs?run_date=eq.${today}`, { step, page, saved, calls, done, message: msg || null, updated_at: new Date().toISOString() });
+  return res.status(200).json({ 결과: done ? "완료" : msg ? "오류로 멈춤 — 다음 실행 때 이어서" : "이어서 받는 중", 진행: `${Math.min(step + 1, OB_SIDOS.length)}/${OB_SIDOS.length} 시도, ${page}쪽`, 저장: saved, 호출: calls, ...(msg ? { 오류: msg } : {}) });
+}
+
 export default async function handler(req, res) {
   res.setHeader("Cache-Control", "no-store");
   if (!SB_URL || !SB_KEY) return res.status(500).json({ 오류: "SUPABASE_URL / SUPABASE_SECRET_KEY 환경변수를 확인하세요." });
+  if (String(req.query?.src || "").startsWith("onbid")) { try { return await collectOnbid(req, res); } catch (e) { return res.status(500).json({ 오류: e.message }); } }
   const started = Date.now();
   const today = kstDate();
   try {
