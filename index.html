@@ -70,6 +70,10 @@ select,.tools input{font:inherit;font-size:14px;padding:7px 10px;border:1px soli
 .door:hover{border-color:var(--accent);box-shadow:0 4px 14px rgba(0,0,0,.06)}
 .door b{font-size:17px}.door p{margin:0;color:var(--sub);font-size:14px;flex:1}.door span{color:var(--accent);font-weight:600;font-size:14px}
 .hq{background:#fff;color:var(--ink);border:1px solid var(--line);padding:7px 12px;font-size:14px;font-weight:500;border-radius:99px}
+.wait{display:flex;align-items:center;gap:8px}
+.dots{display:inline-flex;gap:4px}.dots i{width:7px;height:7px;border-radius:50%;background:var(--accent);display:block;animation:bob 1.2s infinite ease-in-out}
+.dots i:nth-child(2){animation-delay:.15s}.dots i:nth-child(3){animation-delay:.3s}
+@keyframes bob{0%,80%,100%{transform:translateY(0);opacity:.4}40%{transform:translateY(-6px);opacity:1}}
 .lsf{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;align-items:end}
 .lsf label{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--sub)}
 .lsf input,.lsf select{width:100%;box-sizing:border-box;padding:9px 10px;border:1px solid var(--line);border-radius:8px;font-size:15px;background:#fff;color:var(--ink)}
@@ -1244,10 +1248,20 @@ function chatDraw(pending) {
     (m.areas?.list?.length ? `<div class="links">${m.areas.list.map((a) => `<a href="#" onclick="event.preventDefault();openArea('${esc(a.코드)}', '${esc(String(m.areas.biz || "").replace(/'/g, ""))}')">📊 ${esc(a.상권)} 자세히 보기</a>`).join("")}</div>` : "") +
     (m.links?.length ? `<div class="links">${m.links.map((l) => `<a href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.기관)} ↗</a>`).join("")}</div>` : "");
   CHAT.forEach((m, i) => h += m.role === "divider" ? `<div class="muted" style="text-align:center;font-size:12px;margin:4px 0">── ${esc(m.content)} ──</div>` : m.role === "user" ? `<div class="mg u">${esc(m.content)}</div>` : `<div class="mg a">${md(m.content)}${extra(m)}<span style="display:flex;gap:12px"><button type="button" class="cp" data-c="${i}">복사</button><button type="button" class="cp" data-s="${i}">공유</button></span></div>`);
-  if (pending) h += `<div class="mg a muted">답변을 쓰는 중…</div>`;
+  if (pending) { WAIT_START ||= Date.now(); h += `<div class="mg a muted wait"><span class="dots"><i></i><i></i><i></i></span> <span id="waitMsg">${waitText()}</span></div>`; }
+  else WAIT_START = 0;
   if (!pending) h += `<div class="chips">${chatSuggest().map((q) => `<button type="button" data-q="${esc(q)}">${esc(q)}</button>`).join("")}</div>`;
   cm.innerHTML = h; cm.scrollTop = cm.scrollHeight;
 }
+// AI 답변 기다리는 동안: 움직이는 점 + 몇 초마다 바뀌는 안내
+let WAIT_START = 0;
+const WAIT_STEPS = ["질문을 읽는 중", "필요한 자료를 고르는 중", "상권·경매 자료를 찾는 중", "숫자를 비교하는 중", "쉬운 말로 정리하는 중", "거의 다 됐어요"];
+function waitText() {
+  const sec = WAIT_START ? Math.floor((Date.now() - WAIT_START) / 1000) : 0;
+  return `${WAIT_STEPS[Math.min(Math.floor(sec / 5), WAIT_STEPS.length - 1)]}… <span style="font-size:12px">${sec}초</span>`;
+}
+setInterval(() => { const w = document.getElementById("waitMsg"); if (w && WAIT_START) w.innerHTML = waitText(); }, 1000);
+
 async function chatSend(q) {
   q = q.trim(); if (!q) return;
   CHAT.push({ role: "user", content: q }); chatDraw(true);
