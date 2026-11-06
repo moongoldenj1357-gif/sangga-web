@@ -1,6 +1,7 @@
 // 경매 물건의 현황조사서를 법원경매정보에서 한 건만 가져와 AI가 쉬운 말로 정리 (개인 이름 제거)
 // 원본은 저장하지 않고 정리본만 auction_docs에 저장해 다음 사람은 법원에 다시 접속하지 않음
 import { createHash } from "node:crypto";
+import { isAdmin } from "../lib/admin.js";
 export const config = { maxDuration: 60 };
 
 const BASE = "https://www.courtauction.go.kr";
@@ -89,10 +90,11 @@ export default async function handler(req, res) {
     const ip = String(req.headers["x-forwarded-for"] || req.socket?.remoteAddress || "unknown").split(",")[0].trim();
     const used = await sb("POST", "rpc/bump_chat", { p_client: hash("aucdoc|" + ip + "|" + SB_KEY.slice(-12)) });
     const u = Array.isArray(used) ? used[0] : used;
-    if (u.mine > PER_VISITOR) return res.status(429).json({ 오류: `서류 자동 정리는 하루 ${PER_VISITOR}번까지예요.` });
+    const admin = isAdmin(req);
+    if (!admin && u.mine > PER_VISITOR) return res.status(429).json({ 오류: `서류 자동 정리는 하루 ${PER_VISITOR}번까지예요.` });
     const today = new Date(Date.now() + 9 * 3600_000).toISOString().slice(0, 10);
     const cnt = await fetch(`${SB_URL}/rest/v1/auction_docs?created_at=gte.${today}T00:00:00%2B09:00&select=id`, { headers: { apikey: SB_KEY, Prefer: "count=exact", Range: "0-0", ...(SB_KEY.startsWith("sb_") ? {} : { Authorization: `Bearer ${SB_KEY}` }) } });
-    if (Number((cnt.headers.get("content-range") || "/0").split("/")[1]) >= COURT_DAILY_CAP) return res.status(429).json({ 오류: "오늘 서류 자동 정리 한도가 찼어요. 내일 다시 이용하거나, 서류를 직접 올려 주세요." });
+    if (!admin && Number((cnt.headers.get("content-range") || "/0").split("/")[1]) >= COURT_DAILY_CAP) return res.status(429).json({ 오류: "오늘 서류 자동 정리 한도가 찼어요. 내일 다시 이용하거나, 서류를 직접 올려 주세요." });
 
     if (!it.court_code || !it.print_case_no) return res.status(400).json({ 오류: "이 물건은 법원 코드나 사건번호가 없어 서류를 가져올 수 없어요." });
     const raw = await fetchCurst(it.court_code, it.print_case_no);

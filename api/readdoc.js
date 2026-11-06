@@ -1,5 +1,6 @@
 // 경매 서류(매각물건명세서·현황조사서·감정평가서·등기부 등)를 AI가 읽고 쉬운 말로 정리 — 파일은 저장하지 않음
 import { createHash } from "node:crypto";
+import { isAdmin } from "../lib/admin.js";
 const API_KEY = process.env.ANTHROPIC_API_KEY ?? "";
 const MODEL = process.env.DOC_MODEL || process.env.CHAT_MODEL || "claude-haiku-5-5";
 const SB_URL = (process.env.SUPABASE_URL ?? "").trim().replace(/\/+$/, "").replace(/\/rest\/v1$/, "");
@@ -67,8 +68,9 @@ export default async function handler(req, res) {
   const ip = String(req.headers["x-forwarded-for"] || req.socket?.remoteAddress || "unknown").split(",")[0].trim();
   let used;
   try { used = await bump(hash("doc|" + ip + "|" + SB_KEY.slice(-12))); } catch (e) { return res.status(500).json({ 오류: e.message }); }
-  if (used.total > SITE_TOTAL) return res.status(429).json({ 오류: "오늘 사이트 전체 AI 사용 한도가 찼어요. 내일 다시 이용해 주세요." });
-  if (used.mine > PER_VISITOR) return res.status(429).json({ 오류: `서류 읽기는 하루 ${PER_VISITOR}번까지예요. 내일 다시 이용해 주세요.` });
+  const admin = isAdmin(req);
+  if (!admin && used.total > SITE_TOTAL) return res.status(429).json({ 오류: "오늘 사이트 전체 AI 사용 한도가 찼어요. 내일 다시 이용해 주세요." });
+  if (!admin && used.mine > PER_VISITOR) return res.status(429).json({ 오류: `서류 읽기는 하루 ${PER_VISITOR}번까지예요. 내일 다시 이용해 주세요.` });
 
   const ctx = String(body.context || "").slice(0, 1500);
   try {

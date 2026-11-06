@@ -2,6 +2,7 @@ import { findPrograms } from "../lib/support.js";
 import { findTrdar, bizRegex } from "../lib/area.js";
 // AI 상담 채팅 — 화면에 띄운 자료를 근거로 Claude(Haiku)가 답함
 import { createHash } from "node:crypto";
+import { isAdmin } from "../lib/admin.js";
 
 const API_KEY = process.env.ANTHROPIC_API_KEY ?? "";
 const MODEL = process.env.CHAT_MODEL || "claude-haiku-5-5";
@@ -13,7 +14,7 @@ const SITE_TOTAL = Number(process.env.CHAT_DAILY_TOTAL || 300);
 const SYSTEM = `당신은 상권 분석 사이트 "좋은목"의 AI 상담원입니다. 사용자는 세 부류입니다: (1) 상가를 투자용으로 낙찰받으려는 사람 (2) 자기가 쓸 사무실·가게·공장을 찾는 사람 (3) 창업하려는데 어디서, 낙찰과 임대 중 어떤 방법으로 할지 고민하는 사람. 셋 모두 결국 "이 자리(목)가 좋은가"를 판단하려는 사람입니다.
 
 [답하는 방식]
-- 쉬운 한국어로, 짧게(보통 3~8문장, 필요하면 짧은 목록). 결론을 첫 문장에 쓰세요. 전문용어는 처음 나올 때 괄호로 풀어 주세요.
+- 쉬운 한국어로, 짧게(보통 3~8문장, 길어도 20줄 이내, 필요하면 짧은 목록). 결론을 첫 문장에 쓰세요. 이미 앞 답변에서 한 말은 되풀이하지 마세요. 전문용어는 처음 나올 때 괄호로 풀어 주세요.
 - 아래 [현재 화면 자료]에 있는 숫자·용도만 사실로 말하세요. 자료에 없는 것(임대료, 권리금, 유동인구, 특정 호실 현재 세입자 등)은 "이 화면 자료에는 없다"고 말하고 어디서 확인하는지 알려 주세요. 숫자를 지어내지 마세요.
 - 질문이 화면과 무관한 일반 질문(용어, 절차)이면 일반 지식으로 답하세요.
 - 사용자가 "이 호실", "여기", 호수(예: 102호)를 말하면 먼저 ★ 표시된 "사용자가 지금 고른 공간"을, 없으면 호실 목록·층별개요에서 찾아 답하세요. 목록에 있는데 없다고 말하지 마세요.
@@ -220,8 +221,9 @@ export default async function handler(req, res) {
   const client = hash(ip + "|" + SB_KEY.slice(-12));
   let used;
   try { used = await bump(client); } catch (e) { return res.status(500).json({ 오류: e.message }); }
-  if (used.total > SITE_TOTAL) return res.status(429).json({ 오류: "오늘 사이트 전체 AI 상담 한도가 찼어요. 내일 다시 이용해 주세요.", 남은횟수: 0 });
-  if (used.mine > PER_VISITOR) return res.status(429).json({ 오류: `AI 상담은 하루 ${PER_VISITOR}번까지예요. 내일 다시 이용해 주세요.`, 남은횟수: 0 });
+  const admin = isAdmin(req);
+  if (!admin && used.total > SITE_TOTAL) return res.status(429).json({ 오류: "오늘 사이트 전체 AI 상담 한도가 찼어요. 내일 다시 이용해 주세요.", 남은횟수: 0 });
+  if (!admin && used.mine > PER_VISITOR) return res.status(429).json({ 오류: `AI 상담은 하루 ${PER_VISITOR}번까지예요. 내일 다시 이용해 주세요.`, 남은횟수: 0 });
 
   const context = clip(body.context, 9000) || "(아직 조회한 주소가 없습니다)";
   try {
@@ -233,7 +235,7 @@ export default async function handler(req, res) {
         method: "POST",
         headers: { "x-api-key": API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
         body: JSON.stringify({
-          model: MODEL, max_tokens: 1600, tools: TOOLS,
+          model: MODEL, max_tokens: 3000, tools: TOOLS,
           system: `${SYSTEM}${SYSTEM_TOOLS}\n\n[현재 화면 자료]\n${context}`,
           messages: convo,
         }),
@@ -265,7 +267,7 @@ export default async function handler(req, res) {
     }
     const text = (d.content || []).filter((c) => c.type === "text").map((c) => c.text).join("\n").trim();
     const cut = d.stop_reason === "max_tokens" ? "\n\n(답변이 길어 여기서 끊겼어요. \"이어서\"라고 보내면 계속해요.)" : "";
-    return res.status(200).json({ 답변: (text || "답변을 만들지 못했어요. 다시 물어봐 주세요.") + cut, 남은횟수: Math.max(PER_VISITOR - used.mine, 0),
+    return res.status(200).json({ 답변: (text || "답변을 만들지 못했어요. 다시 물어봐 주세요.") + cut, 남은횟수: admin ? 999 : Math.max(PER_VISITOR - used.mine, 0),
       ...(found ? { 물건: found.물건.map(({ raw, ...x }) => x), 찾은건수: found.찾은건수 } : {}), ...(support ? { 지원기관: support.기관 } : {}), ...(programs?.공고?.length ? { 공고: programs.공고 } : {}), ...(areas ? { 상권: areas } : {}) });
   } catch (e) {
     return res.status(504).json({ 오류: "AI 응답이 늦어요. 잠시 후 다시 시도해 주세요." });
