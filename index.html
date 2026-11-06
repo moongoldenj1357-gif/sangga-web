@@ -78,6 +78,14 @@ select,.tools input{font:inherit;font-size:14px;padding:7px 10px;border:1px soli
 .dots{display:inline-flex;gap:4px}.dots i{width:7px;height:7px;border-radius:50%;background:var(--accent);display:block;animation:bob 1.2s infinite ease-in-out}
 .dots i:nth-child(2){animation-delay:.15s}.dots i:nth-child(3){animation-delay:.3s}
 @keyframes bob{0%,80%,100%{transform:translateY(0);opacity:.4}40%{transform:translateY(-6px);opacity:1}}
+#userBox button{padding:6px 12px;font-size:13px}
+.kakao{background:#FEE500!important;color:#191919!important;border:none!important;font-weight:600}
+.star{background:#fff;color:var(--accent);border:1px solid var(--accent);padding:6px 12px;font-size:14px;border-radius:99px}
+.star.on{background:#fff6d6;color:#9a5b00;border-color:#e3b341}
+.wl{display:flex;flex-direction:column;gap:8px}.wl .it{cursor:pointer;border:1px solid var(--line);border-radius:12px;padding:12px 14px;background:#fff}.wl .it:hover{border-color:var(--accent)}
+.alert{display:inline-block;margin:3px 6px 0 0;padding:2px 8px;border-radius:99px;font-size:12.5px;background:var(--accent-soft);color:var(--accent)}
+.alert.hot{background:#fdecea;color:var(--bad)}.alert.new::after{content:" NEW";font-weight:700}
+@media (max-width:640px){#userBox{position:static!important;justify-content:flex-end;margin-bottom:6px}header h1{padding-right:0!important}}
 .lsf{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;align-items:end}
 .lsf label{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--sub)}
 .lsf input,.lsf select{width:100%;box-sizing:border-box;padding:9px 10px;border:1px solid var(--line);border-radius:8px;font-size:15px;background:#fff;color:var(--ink)}
@@ -112,11 +120,13 @@ footer{margin-top:40px;font-size:12px;color:var(--sub)}
 </head>
 <body>
 <div class="wrap">
-<header>
-  <h1 style="cursor:pointer" onclick="goHome()">좋은목 <span style="font-size:15px;font-weight:500;color:var(--sub)">상권으로 판단하는 낙찰·임대·창업</span></h1>
-  <p>사든, 빌리든, 차리든 — 먼저 목을 보세요. 서울·경기·인천의 실거래·임대료·공실률·주변 점포·경매 물건을 한 화면에서 봅니다.</p>
+<header style="position:relative">
+  <div id="userBox" style="position:absolute;right:0;top:4px;display:flex;gap:8px;align-items:center;font-size:14px"></div>
+  <h1 style="cursor:pointer;padding-right:150px" onclick="goHome()">좋은목 <span style="font-size:15px;font-weight:500;color:var(--sub)">상권으로 판단하는 낙찰·임대·창업</span></h1>
+  <p>사든, 빌리든, 차리든 — 먼저 목을 보세요. 서울·경기·인천의 실거래·임대료·공실률·유동인구·업종 매출·경매·공매 물건을 한 화면에서 봅니다.</p>
 </header>
-<nav class="tabs"><button type="button" data-m="home">처음</button><button type="button" data-m="area">동네·업종 분석</button><button type="button" data-m="auc">경매 물건 찾기</button><button type="button" data-m="addr">주소로 분석</button></nav>
+<nav class="tabs"><button type="button" data-m="home">처음</button><button type="button" data-m="area">동네·업종 분석</button><button type="button" data-m="auc">경매 물건 찾기</button><button type="button" data-m="addr">주소로 분석</button><button type="button" data-m="watch" id="tabWatch" hidden>⭐ 관심 물건</button></nav>
+<div id="watchPanel" hidden><div id="watchOut" style="margin-top:14px"></div></div>
 <div id="homePanel" hidden>
   <div class="card" style="margin-top:14px;border:2px solid var(--accent)">
     <h2 style="font-size:20px;margin:0 0 4px">어디서, 무엇을 하려고 하세요?</h2>
@@ -133,7 +143,7 @@ footer{margin-top:40px;font-size:12px;color:var(--sub)}
     </div>
   </div>
   <div class="doors">
-    <div class="door" onclick="goDoor('invest')"><b>💰 투자로 낙찰받기</b><p>임대 수익이 나는 상가·오피스텔을 경매로. 실거래 시세와 임대료로 수익률을 따져 봐요.</p><span>경매 물건 보기 →</span></div>
+    <div class="door" onclick="goDoor('invest')"><b>💰 투자로 낙찰받기</b><p>임대 수익이 나는 상가·오피스텔을 경매·공매로. 실거래 시세와 임대료로 수익률을 따져 봐요.</p><span>경매 물건 보기 →</span></div>
     <div class="door" onclick="goDoor('use')"><b>🏢 내가 쓸 곳 찾기</b><p>사무실·가게·공장·창고를 사거나 낙찰받기. 용도와 토지 규제로 그 공간을 쓸 수 있는지 봐요.</p><span>사무실·공장·창고 보기 →</span></div>
     <div class="door" onclick="goDoor('startup')"><b>🏪 창업 자리 찾기</b><p>어느 상권에서, 임대와 낙찰 중 무엇으로? 유동인구·업종별 매출·폐업률부터 월세 점검까지.</p><span>동네·업종 분석하기 →</span></div>
   </div>
@@ -199,6 +209,7 @@ footer{margin-top:40px;font-size:12px;color:var(--sub)}
   <form id="cf"><textarea id="ci" placeholder="예: 이 호실에 카페 차려도 되나요?" rows="1"></textarea><button type="submit" id="cs">보내기</button></form>
   <div id="cn">AI 답변은 참고용이며 감정평가·법률자문이 아닙니다. 중요한 결정 전 전문가·구청에 확인하세요.</div>
 </div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
@@ -896,7 +907,8 @@ let LIST_SCROLL = 0;
 function setMode(m) {
   // m: "home"(처음) | "auc"(목록) | "aucDetail"(경매 물건 상세) | "addr"(주소 분석)
   document.querySelectorAll(".tabs button").forEach((b) => b.classList.toggle("on", b.dataset.m === (m === "aucDetail" ? "auc" : m)));
-  $("#aucPanel").hidden = m !== "auc"; $("#addrPanel").hidden = m !== "addr"; $("#homePanel").hidden = m !== "home"; $("#areaPanel").hidden = m !== "area";
+  $("#aucPanel").hidden = m !== "auc"; $("#addrPanel").hidden = m !== "addr"; $("#homePanel").hidden = m !== "home"; $("#areaPanel").hidden = m !== "area"; $("#watchPanel").hidden = m !== "watch";
+  if (m === "watch") { $("#out").innerHTML = ""; renderWatch(); }
   if (m === "area") $("#out").innerHTML = "";
   if (m === "home") { $("#out").innerHTML = ""; loadLh(); }
   if (m === "auc") { $("#out").innerHTML = ""; if (!$("#aucList").innerHTML) loadAuc(1); else setTimeout(() => window.scrollTo(0, LIST_SCROLL), 0); }
@@ -908,7 +920,7 @@ async function loadLh() {
   if (LH_LOADED) return; LH_LOADED = true;
   const box = $("#lhList"); if (!box) return;
   try {
-    const r = await fetch("/api/support?lh=1"), x = await r.json();
+    const r = await fetch("/api/account?support=1&lh=1"), x = await r.json();
     if (!r.ok) throw new Error(x.오류 || "공고를 불러오지 못했어요");
     const L = x.공고 || [];
     box.classList.remove("muted");
@@ -919,6 +931,126 @@ async function loadLh() {
       : `<p class="muted" style="margin:0">지금 LH에 올라온 서울·경기·인천 상가 공고가 없어요.</p>`) +
       `<p style="margin:10px 0 0;font-size:13px">지역 공사도 상가 공고를 내요: ${(x.다른곳 || []).map((o) => `<a href="${esc(o.url)}" target="_blank" rel="noopener">${esc(o.기관)}</a>`).join(" · ")}</p>`;
   } catch (e) { box.innerHTML = `<span class="muted">${esc(e.message)}</span>`; }
+}
+
+// ── 회원(카카오 로그인) · 관심 물건 · 알림 ─────────────────────────────
+let SB = null, USER = null, PROFILE = null, WATCH = new Map(), WATCH_ALERTS = null;
+async function initAuth() {
+  try {
+    const c = await fetch("/api/account?config=1").then((r) => r.json());
+    if (!c.로그인 || !window.supabase) { $("#userBox").innerHTML = ""; return; }
+    SB = window.supabase.createClient(c.url, c.key, { auth: { persistSession: true, detectSessionInUrl: true, flowType: "pkce" } });
+    SB.auth.onAuthStateChange((_e, session) => { USER = session?.user || null; afterAuth(); });
+    const { data } = await SB.auth.getSession(); USER = data.session?.user || null; afterAuth();
+  } catch { $("#userBox").innerHTML = ""; }
+}
+let AUTH_DONE = 0;
+async function afterAuth() {
+  const tok = ++AUTH_DONE;
+  if (!USER) { PROFILE = null; WATCH = new Map(); drawUser(); refreshStar(); return; }
+  const [{ data: prof }, { data: wl }] = await Promise.all([SB.from("profiles").select("*").eq("id", USER.id).maybeSingle(), SB.from("watchlist").select("*").order("added_at", { ascending: false })]);
+  if (tok !== AUTH_DONE) return;
+  PROFILE = prof; WATCH = new Map((wl || []).map((w) => [w.item_id, w]));
+  drawUser(); refreshStar(); loadAlerts();
+}
+function nick() { return PROFILE?.nickname || USER?.user_metadata?.name || USER?.user_metadata?.nickname || "회원"; }
+function drawUser(newCnt) {
+  const box = $("#userBox"); if (!box) return;
+  $("#tabWatch").hidden = !USER;
+  if (!SB) { box.innerHTML = ""; return; }
+  box.innerHTML = USER
+    ? `<span class="muted">${esc(nick())}님${PROFILE?.tier === "paid" ? " · 유료회원" : ""}</span><button type="button" class="star" onclick="setMode('watch')">⭐ 관심 ${WATCH.size}${newCnt ? ` <b style="color:var(--bad)">· 새 소식 ${newCnt}</b>` : ""}</button><button type="button" style="background:none;color:var(--sub);border:1px solid var(--line)" onclick="logout()">로그아웃</button>`
+    : `<button type="button" class="kakao" onclick="login()">카카오로 시작하기</button>`;
+}
+async function login() {
+  if (!SB) return alertBox("로그인을 아직 쓸 수 없어요.");
+  await SB.auth.signInWithOAuth({ provider: "kakao", options: { redirectTo: location.origin + location.pathname + location.search } });
+}
+async function logout() { if (SB) await SB.auth.signOut(); USER = null; afterAuth(); if (!$("#watchPanel").hidden) goHome(); }
+function alertBox(msg) { const d = document.createElement("div"); d.className = "note"; d.style.cssText = "position:fixed;left:50%;top:16px;transform:translateX(-50%);z-index:99;box-shadow:0 6px 20px rgba(0,0,0,.15);max-width:92vw"; d.innerHTML = msg; document.body.appendChild(d); setTimeout(() => d.remove(), 3500); }
+
+// 경매 물건 화면의 ☆ 버튼
+function starBtn(a) { const on = WATCH.has(a.id); return `<button type="button" class="star${on ? " on" : ""}" onclick="toggleStar()">${on ? "★ 관심 물건" : "☆ 관심 물건 추가"}</button>`; }
+function refreshStar() { const el = $("#starSlot"); if (el && AUC) el.innerHTML = starBtn(AUC); }
+async function toggleStar() {
+  const a = AUC; if (!a) return;
+  if (!USER) { alertBox(`관심 물건은 로그인하면 저장돼요. <a href="#" onclick="event.preventDefault();login()">카카오로 시작하기</a>`); return; }
+  if (WATCH.has(a.id)) {
+    await SB.from("watchlist").delete().eq("item_id", a.id); WATCH.delete(a.id);
+  } else {
+    const row = { item_id: a.id, src: a.src === "onbid" ? "onbid" : "court", title: `${a.print_case_no} · ${a.lot_address || a.address || ""}`.slice(0, 200), sale_date: a.sale_date || null, min_price: a.min_price || null };
+    const { data, error } = await SB.from("watchlist").insert(row).select().single();
+    if (error) { alertBox("저장하지 못했어요: " + esc(error.message)); return; }
+    WATCH.set(a.id, data); alertBox("⭐ 관심 물건에 넣었어요. 매각기일·결과가 바뀌면 '관심 물건'에서 알려 드려요.");
+  }
+  refreshStar(); drawUser();
+}
+
+// 관심 물건의 변화 찾기 (공개 표를 직접 읽음)
+async function loadAlerts() {
+  if (!USER || !WATCH.size) { WATCH_ALERTS = []; drawUser(); return; }
+  const ws = [...WATCH.values()], court = ws.filter((w) => w.src !== "onbid").map((w) => w.item_id), ob = ws.filter((w) => w.src === "onbid").map((w) => w.item_id.replace(/^OB:/, ""));
+  const mng = [...new Set(ob.map((id) => id.split("-").slice(0, 3).join("-")))];
+  const [ai, ar, oi, orr] = await Promise.all([
+    court.length ? SB.from("auction_items").select("id,print_case_no,court_name,lot_address,sale_date,min_price,appraised,fail_count,active,category").in("id", court) : { data: [] },
+    court.length ? SB.from("auction_results").select("id,sale_date,result,sold_price,sold_rate,next_date,checked_at").in("id", court) : { data: [] },
+    ob.length ? SB.from("onbid_items").select("id,cltr_mng_no,name,lot_address,bid_end,min_price,appraised,fail_count,active,status").in("id", ob) : { data: [] },
+    mng.length ? SB.from("onbid_results").select("id,opbd_at,status,sold_price,sold_rate,collected_at").or(mng.map((m) => `id.like.${m}-*`).join(",")) : { data: [] },
+  ]);
+  const today = new Date(Date.now() + 9 * 3600_000).toISOString().slice(0, 10);
+  const days = (d) => d ? Math.round((new Date(d) - new Date(today)) / 864e5) : null;
+  const out = [];
+  for (const w of ws) {
+    const A = [], seen = new Date(w.seen_at || 0);
+    let cur = null;
+    if (w.src !== "onbid") {
+      cur = (ai.data || []).find((x) => x.id === w.item_id);
+      for (const r of (ar.data || []).filter((x) => x.id === w.item_id && x.sale_date >= String(w.added_at).slice(0, 10)).sort((a, b) => b.sale_date.localeCompare(a.sale_date))) {
+        if (r.result === "매각") A.push({ t: `🔨 ${r.sale_date} 낙찰 ${wonW(r.sold_price)}${r.sold_rate ? ` (감정가의 ${r.sold_rate}%)` : ""}`, hot: true, at: r.checked_at });
+        else if (r.result === "유찰") A.push({ t: `${r.sale_date} 유찰${r.next_date ? ` → 다음 기일 ${r.next_date}` : ""}`, at: r.checked_at });
+        else if (r.result !== "미확인") A.push({ t: `${r.sale_date} ${r.result}`, at: r.checked_at });
+      }
+    } else {
+      cur = (oi.data || []).find((x) => "OB:" + x.id === w.item_id);
+      const m = w.item_id.replace(/^OB:/, "").split("-").slice(0, 3).join("-");
+      for (const r of (orr.data || []).filter((x) => x.id.startsWith(m + "-") && x.opbd_at >= w.added_at).sort((a, b) => b.opbd_at.localeCompare(a.opbd_at))) {
+        if (r.status === "낙찰") A.push({ t: `🔨 ${String(r.opbd_at).slice(0, 10)} 낙찰 ${r.sold_price ? wonW(r.sold_price) : ""}${r.sold_rate ? ` (감정가의 ${Math.round(r.sold_rate)}%)` : ""}`, hot: true, at: r.collected_at });
+        else A.push({ t: `${String(r.opbd_at).slice(0, 10)} ${r.status || "결과"}`, at: r.collected_at });
+      }
+      if (cur) cur = { ...cur, sale_date: cur.bid_end ? String(cur.bid_end).slice(0, 10) : null };
+    }
+    if (cur) {
+      if (w.sale_date && cur.sale_date && cur.sale_date !== w.sale_date) A.push({ t: `📅 ${w.src === "onbid" ? "입찰마감" : "매각기일"} ${w.sale_date} → ${cur.sale_date}`, at: null, chg: true });
+      if (w.min_price && cur.min_price && cur.min_price < w.min_price) A.push({ t: `⬇ 최저가 ${wonW(w.min_price)} → ${wonW(cur.min_price)}`, at: null, chg: true });
+      const dd = days(cur.sale_date);
+      if (cur.active !== false && dd != null && dd >= 0 && dd <= 3) A.push({ t: `⏰ ${dd === 0 ? "오늘" : `D-${dd}`} ${w.src === "onbid" ? "입찰마감" : "매각기일"}`, hot: true, at: null, soon: true });
+      if (cur.active === false && !A.some((x) => /낙찰|유찰/.test(x.t))) A.push({ t: "목록에서 빠짐 (종결·취하·변경 가능)", at: null });
+    } else A.push({ t: "지금 목록에 없음 (종결·취하 가능)", at: null });
+    const isNew = (x) => x.soon || x.chg ? false : x.at && new Date(x.at) > seen;
+    out.push({ w, cur, A: A.map((x) => ({ ...x, new: isNew(x) })) });
+  }
+  WATCH_ALERTS = out;
+  drawUser(out.reduce((n, o) => n + o.A.filter((x) => x.new || x.soon).length, 0));
+  if (!$("#watchPanel").hidden) renderWatch();
+}
+function renderWatch() {
+  const box = $("#watchOut"); if (!box) return;
+  if (!USER) { box.innerHTML = `<div class="card">관심 물건은 로그인하면 쓸 수 있어요. <button type="button" class="kakao" onclick="login()">카카오로 시작하기</button></div>`; return; }
+  if (!WATCH.size) { box.innerHTML = `<div class="card"><h2>⭐ 관심 물건</h2><p class="muted">아직 없어요. 경매·공매 물건을 열고 오른쪽 위 <b>☆ 관심 물건 추가</b>를 누르면 여기에 모이고, 매각기일 임박·낙찰가·유찰·기일 변경을 알려 드려요.</p></div>`; return; }
+  if (!WATCH_ALERTS) { box.innerHTML = `<div class="card muted">관심 물건을 확인하는 중…</div>`; loadAlerts(); return; }
+  box.innerHTML = `<div class="card"><h2>⭐ 관심 물건 <span class="muted">${WATCH.size}건 · 매각기일 3일 전, 낙찰·유찰 결과, 기일·최저가 변경을 보여 드려요</span></h2>
+    <div class="wl">${WATCH_ALERTS.map(({ w, cur, A }) => `<div class="it" data-id="${esc(w.item_id)}" style="display:block">
+      <div style="display:flex;justify-content:space-between;gap:8px"><b>${esc(w.title || w.item_id)}</b><span class="muted" style="white-space:nowrap">${w.src === "onbid" ? "공매" : "경매"}${cur?.min_price ? " · 최저 " + wonW(cur.min_price) : ""}</span></div>
+      <div>${A.length ? A.map((x) => `<span class="alert${x.hot ? " hot" : ""}${x.new ? " new" : ""}">${esc(x.t)}</span>`).join("") : `<span class="muted" style="font-size:13px">변화 없음 · ${esc(cur?.sale_date || "")}</span>`}</div>
+      <div style="margin-top:4px"><a href="#" onclick="event.stopPropagation();event.preventDefault();unwatch('${esc(w.item_id)}')" class="muted" style="font-size:12px">관심 해제</a></div></div>`).join("")}</div></div>`;
+  box.querySelectorAll(".it").forEach((el) => el.onclick = () => openById(el.dataset.id));
+  // 본 것으로 표시
+  SB.from("watchlist").update({ seen_at: new Date().toISOString() }).eq("user_id", USER.id).then(() => { for (const w of WATCH.values()) w.seen_at = new Date().toISOString(); });
+}
+async function unwatch(id) { await SB.from("watchlist").delete().eq("item_id", id); WATCH.delete(id); WATCH_ALERTS = WATCH_ALERTS?.filter((o) => o.w.item_id !== id) || null; drawUser(); renderWatch(); }
+async function openById(id) {
+  const x = await fetch("/api/auctions?id=" + encodeURIComponent(id)).then((r) => r.json()).catch(() => ({}));
+  if (x.item) openAuc(x.item); else alertBox("이 물건은 지금 목록에 없어요(종결·취하 등).");
 }
 
 function goHome() { AUC = null; history.replaceState(null, "", "?"); setMode("home"); window.scrollTo(0, 0); }
@@ -1070,7 +1202,7 @@ function renderAuc(unit) {
   } else cmp = `<p class="muted" style="margin:10px 0 0">아래 호실·층 목록에서 이 물건의 호실을 누르면 실거래 시세와 비교해 드려요.${/호/.test(a.buildings || "") ? "" : " (물건 정보에 호수가 없어요)"}</p>`;
   const tax = a.min_price * 0.046;
   const risky = a.remarks && RISKY.test(a.remarks);
-  box.innerHTML = `<button type="button" onclick="backToList()" style="background:none;color:var(--accent);padding:4px 0;font-size:14px;margin-top:14px">← 경매 물건 목록으로</button><div class="card stage" style="margin-top:6px"><h2>1단계 · ${a.src === "onbid" ? (/임대|대부/.test(a.dsps || "") ? "공매로 빌릴까?" : "공매로 낙찰받을까?") : "낙찰받을까?"} <span class="muted">${a.src === "onbid" ? "물건관리번호 " : ""}${esc(a.print_case_no)} · ${esc(a.court_name || "")} ${esc(a.dept_name || "")}${a.tel ? " ☎ " + esc(a.tel) : ""}</span></h2>
+  box.innerHTML = `<button type="button" onclick="backToList()" style="background:none;color:var(--accent);padding:4px 0;font-size:14px;margin-top:14px">← 경매 물건 목록으로</button><div class="card stage" style="margin-top:6px"><span id="starSlot" style="float:right">${starBtn(a)}</span><h2>1단계 · ${a.src === "onbid" ? (/임대|대부/.test(a.dsps || "") ? "공매로 빌릴까?" : "공매로 낙찰받을까?") : "낙찰받을까?"} <span class="muted">${a.src === "onbid" ? "물건관리번호 " : ""}${esc(a.print_case_no)} · ${esc(a.court_name || "")} ${esc(a.dept_name || "")}${a.tel ? " ☎ " + esc(a.tel) : ""}</span></h2>
     ${a.src === "onbid" ? `<p class="muted" style="margin:0 0 8px">한국자산관리공사 온비드 공매 · ${esc(a.prpt_div || "")}${a.rqst_org ? " · 의뢰 " + esc(a.rqst_org) : ""} · 입찰 ${esc(String(a.bid_begin || "").slice(0, 16).replace("T", " "))} ~ ${esc(String(a.bid_end || "").slice(0, 16).replace("T", " "))}</p>` : ""}
     <div class="grid">
       <div class="kv"><b>감정가</b><span>${wonW(a.appraised)}</span></div>
@@ -1394,7 +1526,7 @@ async function shareAnswer(i, btn) {
   let q = ""; for (let k = i - 1; k >= 0; k--) if (CHAT[k].role === "user") { q = CHAT[k].content; break; }
   const old = btn.textContent; btn.textContent = "링크 만드는 중…";
   try {
-    const r = await fetch("/api/share", { method: "POST", headers: { "Content-Type": "application/json" },
+    const r = await fetch("/api/account", { method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ q, a: m.content.replace(/\n\n\(오늘 남은 질문 \d+번\)$/, ""), place: DATA ? DATA.주소 : "", items: m.items || [], programs: m.programs || [], links: m.links || [] }) });
     const x = await r.json(); if (!r.ok) throw new Error(x.오류 || "공유 실패");
     const url = `${location.origin}/?share=${x.id}`;
@@ -1407,7 +1539,7 @@ async function showShare(id) {
   setMode("aucDetail");
   $("#out").innerHTML = `<div class="card muted">공유된 답변을 불러오는 중…</div>`;
   try {
-    const r = await fetch("/api/share?id=" + encodeURIComponent(id)); const x = await r.json();
+    const r = await fetch("/api/account?id=" + encodeURIComponent(id)); const x = await r.json();
     if (!r.ok) throw new Error(x.오류 || "불러오기 실패");
     const p = x.payload;
     $("#out").innerHTML = `<div class="card stage"><h2>공유된 AI 상담 <span class="muted">${esc(String(x.created_at).slice(0, 10))}${p.place ? " · " + esc(p.place) : ""}</span></h2>
@@ -1451,6 +1583,7 @@ if (shareId) showShare(shareId);
 else if (aucId) { setMode("aucDetail"); fetch("/api/auctions?id=" + encodeURIComponent(aucId)).then((r) => r.json()).then((x) => x.item ? openAuc(x.item) : setMode("auc")).catch(() => setMode("auc")); }
 else if (q) { setMode("addr"); $("#addr").value = q; run(q); }
 else setMode("home");
+initAuth();
 if (ADMIN) document.querySelector("header h1").insertAdjacentHTML("beforeend", ` <span class="pill mid" style="font-size:12px;vertical-align:middle">관리자 모드 <a href="?admin=off" style="color:inherit">끄기</a></span>`);
 </script>
 </body>
