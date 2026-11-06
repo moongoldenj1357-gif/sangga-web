@@ -683,8 +683,13 @@ async function loadLand(d) {
   const box = $("#land"); const pnu = pnuOf(d); if (!box || !pnu) return;
   box.innerHTML = `<div class="card muted">토지이용계획(용도지역·규제)을 확인하는 중입니다…</div>`;
   try {
-    const r = await fetch(`/api/landuse?pnu=${pnu}`); const x = await r.json();
+    const r = await fetch(`/api/landuse?pnu=${pnu}&addr=${encodeURIComponent(d.주소 || "")}`); const x = await r.json();
     if (DATA !== d) return;
+    // 점포 자료로 위치를 못 잡았으면 브이월드 좌표로 임대료·유동인구를 다시 찾음
+    if (x.좌표 && (!RENT_POS || RENT_POS.src !== "stores")) {
+      renderRent({ ...x.좌표, src: "vworld" });
+      if (!$("#flpop")?.innerHTML) loadFlpop(x.좌표);
+    }
     if (!r.ok) throw new Error(x.안내 || "토지이용계획을 불러오지 못했어요");
     box.innerHTML = landCard(x, d);
   } catch (e) { box.innerHTML = `<div class="card"><h2>토지이용계획</h2><div class="err">${esc(e.message)}</div></div>`; }
@@ -749,6 +754,7 @@ function offiCard(d, x) {
   // 단순 수익률(세전·공실 제외) = ㎡당 환산월세 × 12 ÷ ㎡당 매매가 — 이 건물 자료가 모자라면 동 전체로
   const yrB = sP && sConvM2 ? sConvM2 * 12 / sP * 100 : null, yrD = dm.med && dc.conv_m2 ? dc.conv_m2 * 12 / dm.med * 100 : null;
   const yr = yrB ?? yrD;
+  const yrFew = yrB ? st.length < 5 : (dm.n || 0) < 5;
   OFFI_SUM = `오피스텔 실거래(전용면적 기준, 최근 1년 ${d.동}): 환산월세(보증금 연6% 환산) ㎡당 ${dc.conv_m2 ?? "-"}만원·중간 ${dc.conv ?? "-"}만원/월, 단순수익률 ${yr ? yr.toFixed(1) + "%" : "-"}; 매매 ㎡당 중간값 ${dm.med ? won(dm.med) + "원" : "없음"}(${dm.n || 0}건), 월세 중간 보증금 ${dw.dep ? won(dw.dep) + "원" : "-"}/월 ${dw.mon ? won(dw.mon) + "원" : "-"}(${dw.n || 0}건, ㎡당 월세 ${dw.mon_m2 ?? "-"}만원), 전세 중간 ${dj.dep ? won(dj.dep) + "원" : "-"}(${dj.n || 0}건)`
     + (st.length ? `. ${nm} 매매: ` + st.slice(0, 8).map((t) => `${t.deal_date} ${t.floor}층 ${t.area}㎡ ${won(t.deal_amount_10k)}원`).join("; ") : "")
     + (sr.length ? `. ${nm} 임대: ` + sr.slice(0, 10).map((r) => `${r.deal_date} ${r.floor}층 ${r.area}㎡ 보증금 ${won(r.deposit_10k)}${r.monthly_10k ? "/월 " + won(r.monthly_10k) : "(전세)"}`).join("; ") : "");
@@ -760,7 +766,7 @@ function offiCard(d, x) {
     <div class="kv"><b>이 건물 월세 중간값</b><span class="big">${sMon ? `${won(sDep)} / ${won(sMon)}` : "-"}</span><b>${wol.length}건 · 보증금/월세${sMonM2 ? ` · ㎡당 월 ${sMonM2.toFixed(2)}만` : ""}</b></div>
     <div class="kv"><b>이 건물 전세 중간값</b><span>${sJ ? won(sJ) + "원" : "-"}</span><b>${jeon.length}건</b></div>
     <div class="kv"><b>이 건물 환산월세 (보증금 포함)</b><span class="big">${sConv ? won(sConv) + "/월" : "-"}</span><b>${sr.length}건 · ㎡당 월 ${sConvM2 ? sConvM2.toFixed(2) + "만" : "-"} · 보증금은 연 6%로 월세 환산</b></div>
-    ${yr && yr > 0 && yr < 30 ? `<div class="kv"><b>단순 임대수익률(참고)</b><span>${yr.toFixed(1)}%</span><b>${yrB ? "이 건물" : `${dn} 전체`} ㎡당 환산월세×12 ÷ ㎡당 매매가 · 세금·관리비·공실 제외</b></div>` : ""}
+    ${yr && yr > 0 && yr < 30 ? `<div class="kv"><b>단순 임대수익률(참고)</b><span>${yr.toFixed(1)}%</span><b>${yrB ? "이 건물" : `${dn} 전체`} ㎡당 환산월세×12 ÷ ㎡당 매매가 · 세금·관리비·공실 제외${yrFew ? ` · <span style="color:var(--warn)">⚠ 매매 ${yrB ? st.length : dm.n || 0}건뿐이라 참고만</span>` : ""}</b></div>` : ""}
   </div>` : `<p class="muted">이 지번으로 신고된 오피스텔 거래는 아직 없어요. 아래 ${dn} 전체 값을 참고하세요.</p>`}
   <h2 style="margin-top:18px;font-size:15px">비교: ${dn} 오피스텔 전체 (최근 1년)</h2>
   <div class="grid">
@@ -1137,9 +1143,8 @@ async function renderRent(pos, unit) {
       how = inside.length ? `이 위치는 조사 상권 "${inside[0].name}" 안이지만 받아 둔 통계표에 아직 값이 없어요.` : "이 위치는 부동산원 조사 상권 밖이에요.";
     }
   } else {
-    const same = ds.filter((x) => x.stats && x.sgg === sgg);
-    if (same.length) near = { x: same[0], m: null };
-    how = "점포 자료로 위치를 잡지 못해 같은 시군구의 조사 상권을 보여 드려요.";
+    // 위치를 모르면 아무 상권이나 고르지 않고 시도 평균만 보여 줌 (브이월드 좌표가 오면 다시 계산)
+    how = "아직 정확한 위치를 확인하는 중이라 시도 평균을 먼저 보여 드려요. 위치가 확인되면 이 건물이 속한 상권 값으로 바뀌어요.";
   }
   const main = pickType(d);
   const base = hit || near?.x || null;
