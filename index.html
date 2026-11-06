@@ -636,7 +636,7 @@ function areaAuctions(gu, dong) {
 // 직장인구·상주인구 → 점심 장사형인지 동네 장사형인지 (따로 늦게 불러옴)
 async function loadPop(code) {
   try {
-    const r = await fetch(`/api/stores?pop=${code}`), P = await r.json();
+    const r = await fetch(`/api/stores?pop=${code}&v=2`), P = await r.json();
     document.querySelectorAll(`.popslot[data-c="${code}"]`).forEach((el) => el.innerHTML = r.ok ? popBox({ 인구: P }) : "");
   } catch { document.querySelectorAll(`.popslot[data-c="${code}"]`).forEach((el) => el.innerHTML = ""); }
 }
@@ -644,13 +644,17 @@ function popBox(x) {
   const P = x.인구; if (!P || P.오류 || (!P.직장 && !P.상주)) return "";
   const w = P.직장, r = P.상주, top = (a) => { const t = a.reduce((s, [, v]) => s + v, 0) || 1; return [...a].sort((p, q) => q[1] - p[1]).slice(0, 2).map(([k, v]) => `${k} ${Math.round(v / t * 100)}%`).join(", "); };
   const ratio = w && r && r.총 ? w.총 / r.총 : null, med = P.서울직주비중간;
-  const kind = ratio == null || !med ? "" : ratio > med * 2 ? "직장인이 많은 <b>점심·퇴근길 상권</b>이에요. 평일 낮 장사가 중요해요." : ratio < med / 2 ? "주민이 많은 <b>동네 상권</b>이에요. 단골·생활 업종이 유리해요." : "직장인과 주민이 섞인 상권이에요.";
+  const vr = P.방문비, vmed = P.서울방문비중간;
+  const visit = vr != null && vmed && vr > vmed * 2;
+  const kind = visit ? "바깥에서 <b>놀러·쇼핑 오는 사람</b>이 많은 상권이에요. 저녁·주말 장사와 유행이 중요해요."
+    : ratio == null || !med ? "" : ratio > med * 2 ? "직장인이 많은 <b>점심·퇴근길 상권</b>이에요. 평일 낮 장사가 중요해요."
+    : ratio < med / 2 ? "주민이 많은 <b>동네 상권</b>이에요. 단골·생활 업종이 유리해요." : "직장인과 주민이 섞인 상권이에요.";
   const q = (y) => y ? `${String(y).slice(0, 4)}년 ${String(y).slice(4)}분기` : "";
-  FL_SUM = (FL_SUM || "") + ` / 직장인구 ${w ? w.총.toLocaleString() + "명(" + top(w.연령) + ")" : "-"}, 상주인구 ${r ? r.총.toLocaleString() + "명, " + r.가구.toLocaleString() + "가구(아파트 " + (r.가구 ? Math.round(r.아파트가구 / r.가구 * 100) : 0) + "%)" : "-"}${ratio ? `, 직장인구÷상주인구 ${ratio.toFixed(2)}(서울 상권 중간 ${med})` : ""}`;
+  FL_SUM = (FL_SUM || "") + ` / 직장인구 ${w ? w.총.toLocaleString() + "명(" + top(w.연령) + ")" : "-"}, 상주인구 ${r ? r.총.toLocaleString() + "명, " + r.가구.toLocaleString() + "가구(아파트 " + (r.가구 ? Math.round(r.아파트가구 / r.가구 * 100) : 0) + "%)" : "-"}${ratio ? `, 직장인구÷상주인구 ${ratio.toFixed(2)}(서울 상권 중간 ${med})` : ""}${vr != null ? `, 하루 유동인구÷(직장+상주) ${vr}(서울 중간 ${vmed})` : ""}`;
   return `<div class="grid" style="margin-top:10px">
     <div class="kv"><b>직장인구 (이 상권에서 일하는 사람)</b><span>${w ? w.총.toLocaleString() + "명" : "-"}</span><b>${w ? top(w.연령) + " · " + q(w.분기) : ""}</b></div>
     <div class="kv"><b>상주인구 (이 상권에 사는 사람)</b><span>${r ? r.총.toLocaleString() + "명" : "-"}</span><b>${r ? `${r.가구.toLocaleString()}가구 · 아파트 ${r.가구 ? Math.round(r.아파트가구 / r.가구 * 100) : 0}% · ${top(r.연령)}` : ""}</b></div>
-    ${kind ? `<div class="kv"><b>상권 성격</b><span style="font-size:15px">${kind}</span><b>직장인구÷상주인구 ${ratio.toFixed(2)} (서울 상권 중간값 ${med})</b></div>` : ""}
+    ${kind ? `<div class="kv"><b>상권 성격</b><span style="font-size:15px;font-weight:500;line-height:1.5">${kind}</span><b>${vr != null ? `하루 유동인구÷(직장+상주) ${vr} (서울 중간 ${vmed})` : ""}${ratio != null ? ` · 직장÷상주 ${ratio.toFixed(2)} (서울 중간 ${med})` : ""}</b></div>` : ""}
   </div>`;
 }
 
