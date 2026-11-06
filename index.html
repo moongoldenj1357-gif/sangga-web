@@ -69,6 +69,9 @@ select,.tools input{font:inherit;font-size:14px;padding:7px 10px;border:1px soli
 .door{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;cursor:pointer;display:flex;flex-direction:column;gap:6px}
 .door:hover{border-color:var(--accent);box-shadow:0 4px 14px rgba(0,0,0,.06)}
 .door b{font-size:17px}.door p{margin:0;color:var(--sub);font-size:14px;flex:1}.door span{color:var(--accent);font-weight:600;font-size:14px}
+.lhgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:8px}
+.lhitem{display:flex;flex-direction:column;gap:4px;padding:12px;border:1px solid var(--line);border-radius:12px;color:var(--ink);text-decoration:none;background:#fff}
+.lhitem:hover{border-color:var(--accent)}.lhitem b{font-size:14px;line-height:1.45}.lhitem small{color:var(--sub);font-size:12.5px}.lhitem .pill{align-self:flex-start;font-size:12px}
 .hq{background:#fff;color:var(--ink);border:1px solid var(--line);padding:7px 12px;font-size:14px;font-weight:500;border-radius:99px}
 .wait{display:flex;align-items:center;gap:8px}
 .dots{display:inline-flex;gap:4px}.dots i{width:7px;height:7px;border-radius:50%;background:var(--accent);display:block;animation:bob 1.2s infinite ease-in-out}
@@ -907,7 +910,10 @@ async function loadLh() {
     if (!r.ok) throw new Error(x.오류 || "공고를 불러오지 못했어요");
     const L = x.공고 || [];
     box.classList.remove("muted");
-    box.innerHTML = (L.length ? `<div class="cards">${L.slice(0, 6).map((g) => `<div data-url="${esc(g.url)}" onclick="window.open(this.dataset.url,'_blank','noopener')" style="cursor:pointer"><b>${esc(g.제목)}</b><small>${esc(g.지역)} · ${esc(g.유형)}${g.상태 ? " · " + esc(g.상태) : ""}${g.마감일 ? " · 마감 " + esc(g.마감일) : ""}</small><small style="color:var(--accent)">LH 공고 보기 ↗</small></div>`).join("")}</div>`
+    box.innerHTML = (L.length ? `<div class="lhgrid">${L.slice(0, 6).map((g) => `<a class="lhitem" href="${esc(g.url)}" target="_blank" rel="noopener">
+        <span class="pill ${/접수중/.test(g.상태 || "") ? "ok" : "mid"}">${esc(g.상태 || "공고")}</span>
+        <b>${esc(g.제목)}</b>
+        <small>${esc(String(g.지역).replace(/특별시|광역시/, ""))} · ${esc(g.유형)}${g.마감일 ? ` · 마감 ${esc(g.마감일)}` : ""}</small></a>`).join("")}</div>`
       : `<p class="muted" style="margin:0">지금 LH에 올라온 서울·경기·인천 상가 공고가 없어요.</p>`) +
       `<p style="margin:10px 0 0;font-size:13px">지역 공사도 상가 공고를 내요: ${(x.다른곳 || []).map((o) => `<a href="${esc(o.url)}" target="_blank" rel="noopener">${esc(o.기관)}</a>`).join(" · ")}</p>`;
   } catch (e) { box.innerHTML = `<span class="muted">${esc(e.message)}</span>`; }
