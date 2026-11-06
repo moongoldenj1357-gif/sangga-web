@@ -647,6 +647,7 @@ function popBox(x) {
   const w = P.직장, r = P.상주, top = (a) => { const t = a.reduce((s, [, v]) => s + v, 0) || 1; return [...a].sort((p, q) => q[1] - p[1]).slice(0, 2).map(([k, v]) => `${k} ${Math.round(v / t * 100)}%`).join(", "); };
   const ratio = w && r && r.총 ? w.총 / r.총 : null, med = P.서울직주비중간;
   const vr = P.방문비, vmed = P.서울방문비중간, vp = P.방문백분위, wp = P.직장백분위;
+  const rk = (p) => p >= 50 ? `상위 ${Math.max(100 - p, 1)}%` : `하위 ${Math.max(p, 1)}%`;
   // 서울 상권 1,648곳 중 순위(백분위)로 판단: 상위 25%면 그 성격이 뚜렷하다고 봄
   const kind = vp != null && vp >= 75 ? "바깥에서 <strong>놀러·쇼핑 오는 사람</strong>이 많은 상권이에요. 저녁·주말 장사와 유행이 중요해요."
     : wp != null && wp >= 75 ? "직장인이 많은 <strong>점심·퇴근길 상권</strong>이에요. 평일 낮 장사가 중요해요."
@@ -657,7 +658,7 @@ function popBox(x) {
   return `<div class="grid" style="margin-top:10px">
     <div class="kv"><b>직장인구 (이 상권에서 일하는 사람)</b><span>${w ? w.총.toLocaleString() + "명" : "-"}</span><b>${w ? top(w.연령) + " · " + q(w.분기) : ""}</b></div>
     <div class="kv"><b>상주인구 (이 상권에 사는 사람)</b><span>${r ? r.총.toLocaleString() + "명" : "-"}</span><b>${r ? `${r.가구.toLocaleString()}가구 · 아파트 ${r.가구 ? Math.round(r.아파트가구 / r.가구 * 100) : 0}% · ${top(r.연령)}` : ""}</b></div>
-    ${kind ? `<div class="kv"><b>상권 성격</b><span style="font-size:15px;font-weight:500;line-height:1.5">${kind}${P.teen ? " 10대가 많아 <strong>학교·학원가</strong> 성격도 있어요." : ""}</span><b>${vp != null ? `방문객 비중 서울 상위 ${100 - vp}% (하루 유동인구÷(직장+상주) ${vr})` : ""}${wp != null ? ` · 직장인 비중 상위 ${100 - wp}% (직장÷상주 ${ratio.toFixed(2)})` : ""}</b></div>` : ""}
+    ${kind ? `<div class="kv"><b>상권 성격</b><span style="font-size:15px;font-weight:500;line-height:1.5">${kind}${P.teen ? " 10대가 많아 <strong>학교·학원가</strong> 성격도 있어요." : ""}</span><b>${vp != null ? `방문객 비중 서울 ${rk(vp)} (하루 유동인구÷(직장+상주) ${vr})` : ""}${wp != null ? ` · 직장인 비중 ${rk(wp)} (직장÷상주 ${ratio.toFixed(2)})` : ""}</b></div>` : ""}
   </div>`;
 }
 
