@@ -788,6 +788,28 @@ function autoPickUnit() {
   }
   renderAuc(null);
 }
+// 최근 낙찰가율 (우리가 매일 아침 기록한 결과) — 같은 구·종류가 부족하면 시도로 넓혀서
+const RATES = {};
+const CATNM = { shop: "상가", officetel: "오피스텔", office: "사무실", factory: "공장·지산", warehouse: "창고", etc: "기타", res: "주거" };
+function rateBox(a) {
+  const k = `${a.sido_cd}|${a.sgg_cd}|${a.category}`;
+  if (!(k in RATES)) {
+    RATES[k] = null;
+    fetch(`/api/auctions?rates=1&sido=${a.sido_cd || ""}&sgg=${a.sgg_cd || ""}&cat=${a.category || ""}`).then((r) => r.json())
+      .then((x) => { RATES[k] = x; if (AUC && AUC.id === a.id) renderAuc(RENT_UNIT); }).catch(() => { RATES[k] = { 오류: 1 }; });
+    return "";
+  }
+  const x = RATES[k]; if (!x || x.오류) return "";
+  const sidoNm = { 11: "서울", 41: "경기", 28: "인천" }[a.sido_cd] || "";
+  const pick = [[x.시군구, `${a.sigungu || ""} ${CATNM[a.category] || ""}`], [x.시도, `${sidoNm} ${CATNM[a.category] || ""}`], [x.시도전체, `${sidoNm} 전체`]].find(([v]) => v && v.매각 >= 3);
+  if (!pick) return `<div class="kv" style="margin-top:10px"><b>최근 낙찰가율</b><span>아직 모으는 중</span><b>2026년 11월부터 매일 아침 법원 결과를 기록하고 있어요. 같은 지역·종류의 매각이 3건 이상 쌓이면 보여 드려요.</b></div>`;
+  const [v, nm] = pick;
+  const est = a.appraised && v.중간 ? a.appraised * v.중간 / 100 : null;
+  return `<div class="kv" style="margin-top:10px"><b>최근 낙찰가율 · ${esc(nm)} (우리 기록 ${v.전체}건 중 매각 ${v.매각}건)</b>
+    <span class="big">감정가의 ${v.중간}%${est ? ` → 이 물건이면 약 ${wonW(est)}` : ""}</span>
+    <b>가운데 절반 ${v.하위25}~${v.상위25}% · 매각률 ${Math.round(v.매각 / v.전체 * 100)}% · 유찰 횟수·권리관계에 따라 크게 달라요. 표본이 적을 땐 참고만 하세요.</b></div>`;
+}
+
 function renderAuc(unit) {
   const box = $("#aucStage"); if (!box || !AUC) return;
   const a = AUC, rate = a.appraised ? a.min_price / a.appraised : null;
@@ -818,6 +840,7 @@ function renderAuc(unit) {
       이런 물건은 <b>선순위 임차인 보증금 인수, 유치권, 대지권 미등기, 지분 경매, 위반건축물, 밀린 관리비</b> 같은 문제가 있는 경우가 많아요. 낙찰가 외에 수천만~수억 원을 더 떠안을 수 있어요.
       입찰 전 <b>매각물건명세서의 '인수되는 권리'와 '임차인 현황'</b>을 꼭 보고, 처음이라면 법무사·변호사 등 전문가에게 권리분석을 받으세요.</div>` : ""; })()}
     ${a.remarks ? `<div class="${risky ? "warn" : "note"}"><b>물건 비고</b>: ${esc(a.remarks)}${risky ? "<br>⚠️ 권리관계에 주의할 문구가 있어요. 매각물건명세서로 꼭 확인하세요." : ""}</div>` : ""}
+    ${rateBox(a)}
     ${cmp}
     <div class="note">경매는 낙찰가 외에 <b>인수할 권리(선순위 임차인 보증금, 유치권 등)·명도 비용·밀린 관리비</b>가 더해질 수 있어요. 입찰 전 대법원 법원경매정보에서 <b>매각물건명세서·현황조사서·감정평가서</b>를 꼭 확인하세요. 이 화면은 공개 정보를 정리한 참고자료이며 권리분석·감정평가가 아닙니다. <a href="https://www.courtauction.go.kr" target="_blank" rel="noopener">법원경매정보 바로가기</a></div>
     <div id="aucDoc">${docBox()}</div></div>`;
