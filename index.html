@@ -235,7 +235,10 @@ const ADMIN = (() => { try { const u = new URL(location.href), c = u.searchParam
   if (c === "off") { localStorage.removeItem("admin_code"); u.searchParams.delete("admin"); history.replaceState(null, "", u.pathname + (u.search || "")); return ""; }
   if (c) { localStorage.setItem("admin_code", c); u.searchParams.delete("admin"); history.replaceState(null, "", u.pathname + (u.search || "")); }
   return localStorage.getItem("admin_code") || ""; } catch { return ""; } })();
-const adminH = () => ({ ...(ADMIN ? { "x-admin-code": encodeURIComponent(ADMIN) } : {}), ...(ACCESS ? { Authorization: "Bearer " + ACCESS } : {}) });
+const GID = (() => { try { let g = localStorage.getItem("gid"); if (!g) { g = (crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2) + Date.now().toString(36) + Math.random().toString(36).slice(2)); localStorage.setItem("gid", g); } return g; } catch { return ""; } })();
+// 친구 초대 링크(?ref=코드)로 들어오면 기억해 두었다가 가입 직후 등록
+(() => { try { const u = new URL(location.href), c = u.searchParams.get("ref"); if (c && /^[A-Za-z0-9]{5,10}$/.test(c)) { localStorage.setItem("ref_code", c.toUpperCase()); u.searchParams.delete("ref"); history.replaceState(null, "", u.pathname + (u.search || "")); } } catch {} })();
+const adminH = () => ({ ...(ADMIN ? { "x-admin-code": encodeURIComponent(ADMIN) } : {}), ...(ACCESS ? { Authorization: "Bearer " + ACCESS } : {}), ...(GID ? { "x-guest-id": GID } : {}) });
 let ACCESS = null;   // 로그인 회원의 접속 토큰 (AI 이용 횟수를 회원 기준으로 셈)   // 한글 코드도 보낼 수 있게
 const won = (m) => m == null ? "-" : m >= 10000 ? (m / 10000).toFixed(m >= 100000 ? 0 : 1).replace(/\.0$/, "") + "억" : Math.round(m).toLocaleString() + "만";
 const ymd = (s) => s && s.length === 8 ? `${s.slice(0,4)}.${s.slice(4,6)}.${s.slice(6)}` : (s || "-");
@@ -999,6 +1002,47 @@ async function initAuth() {
     const { data } = await SB.auth.getSession(); ACCESS = data.session?.access_token || null; USER = data.session?.user || null; afterAuth();
   } catch { $("#userBox").innerHTML = ""; }
 }
+// ── 크레딧 · 친구 초대 ─────────────────────────────────────────
+async function claimRef() {
+  let code = ""; try { code = localStorage.getItem("ref_code") || ""; } catch {}
+  if (!code || !USER || !SB) return;
+  const { data, error } = await SB.rpc("claim_referral", { p_code: code });
+  if (error) return;   // 크레딧 SQL을 아직 안 돌렸으면 조용히 넘어감 (코드는 남겨 둠)
+  try { localStorage.removeItem("ref_code"); } catch {}
+  const msg = { ok: "🎉 친구 초대로 가입해서 <b>20크레딧</b>을 더 드렸어요!", self: "내 초대 링크로는 보너스를 받을 수 없어요.", old: "초대 보너스는 가입한 날에만 받을 수 있어요.", nocode: "초대 코드를 찾지 못했어요." }[data];
+  if (msg) alertBox(msg);
+  if (data === "ok") await reloadProfile();
+}
+async function reloadProfile() {
+  if (!USER || !SB) return;
+  const { data } = await SB.from("profiles").select("*").eq("id", USER.id).maybeSingle();
+  if (data) { PROFILE = data; drawUser(); }
+}
+function creditNote(x) {
+  if (x?.남은크레딧 == null) return;
+  if (USER && PROFILE) { PROFILE.credits = x.남은크레딧; drawUser(); }
+}
+async function openCredits() {
+  if (!USER) return login();
+  await reloadProfile();
+  const P = PROFILE || {}, link = `${location.origin}/?ref=${encodeURIComponent(P.ref_code || "")}`;
+  const { data: log } = await SB.from("credit_log").select("delta,reason,at").order("at", { ascending: false }).limit(8);
+  const d = document.createElement("div");
+  d.id = "creditDlg";
+  d.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:120;display:flex;align-items:center;justify-content:center;padding:16px";
+  d.innerHTML = `<div class="card" style="max-width:440px;width:100%;margin:0;max-height:90vh;overflow:auto">
+    <div style="display:flex;justify-content:space-between;align-items:center"><h2 style="margin:0;font-size:18px">💎 내 크레딧 ${P.tier === "paid" || P.tier === "admin" ? "· 무제한" : `<b style="color:var(--accent)">${P.credits ?? 0}</b>`}</h2><button type="button" onclick="this.closest('#creditDlg').remove()" style="background:none;color:var(--sub);font-size:20px">✕</button></div>
+    <p class="muted" style="font-size:13px;margin:6px 0 12px">AI 상담 1 · 올린 서류 읽기 3 · 현황조사서 자동 정리 2크레딧. 나머지 기능(경매·공매 찾기, 상권, 지원사업, 관심 물건)은 무료예요. 매달 1일에 5크레딧보다 적으면 5크레딧으로 채워 드려요.</p>
+    <div class="note" style="margin:0 0 12px"><b>🎁 친구 초대</b> — 이 링크로 친구가 가입하면 친구는 <b>+20크레딧</b>, 친구가 AI를 처음 쓰면 나는 <b>+5크레딧</b> (10명까지, 지금 ${P.ref_count || 0}명)
+      <div style="display:flex;gap:6px;margin-top:8px"><input readonly value="${esc(link)}" style="flex:1;min-width:0;font-size:13px" onclick="this.select()"><button type="button" id="refCopy">복사</button>${navigator.share ? `<button type="button" id="refShare">보내기</button>` : ""}</div></div>
+    ${log?.length ? `<b style="font-size:14px">최근 내역</b><table style="width:100%;font-size:13px;margin-top:4px">${log.map((l) => `<tr><td class="muted">${new Date(l.at).toLocaleString("ko-KR", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}</td><td>${esc(l.reason)}</td><td style="text-align:right;color:${l.delta > 0 ? "var(--accent)" : "var(--sub)"}">${l.delta > 0 ? "+" : ""}${l.delta}</td></tr>`).join("")}</table>` : ""}
+    <p class="muted" style="font-size:12px;margin:10px 0 0">크레딧 충전·유료회원은 준비 중이에요.</p></div>`;
+  d.onclick = (e) => { if (e.target === d) d.remove(); };
+  document.body.appendChild(d);
+  const text = "상가 경매·상권·창업 정보를 한 화면에서 보는 '좋은목'이에요. 이 링크로 가입하면 AI 상담 크레딧 20개를 더 받아요.";
+  $("#refCopy").onclick = async () => { try { await navigator.clipboard.writeText(link); $("#refCopy").textContent = "복사됨"; } catch { d.querySelector("input").select(); } };
+  if ($("#refShare")) $("#refShare").onclick = () => navigator.share({ title: "좋은목", text, url: link }).catch(() => {});
+}
 // 비회원 관심 물건: 이 기기(브라우저)에만 저장. 로그인하면 회원 목록으로 옮김
 const GW_KEY = "guest_watch_v1";
 function guestWatch() { try { const a = JSON.parse(localStorage.getItem(GW_KEY) || "[]"); return Array.isArray(a) ? a : []; } catch { return []; } }
@@ -1019,6 +1063,7 @@ async function afterAuth() {
   PROFILE = prof; WATCH = new Map((wl || []).map((w) => [w.item_id, w]));
   drawUser(); refreshStar(); loadAlerts();
   loadChatHistory();
+  claimRef();
 }
 function nick() { return PROFILE?.nickname || USER?.user_metadata?.name || USER?.user_metadata?.nickname || "회원"; }
 function drawUser(newCnt) {
@@ -1026,7 +1071,7 @@ function drawUser(newCnt) {
   $("#tabWatch").hidden = !USER && !WATCH.size;
   if (!SB) { box.innerHTML = ""; return; }
   box.innerHTML = USER
-    ? `<span class="muted">${esc(nick())}님${PROFILE?.tier === "paid" ? " · 유료회원" : ""}</span><button type="button" class="star" onclick="setMode('watch')">⭐ 관심 ${WATCH.size}${newCnt ? ` <b style="color:var(--bad)">· 새 소식 ${newCnt}</b>` : ""}</button><button type="button" style="background:none;color:var(--sub);border:1px solid var(--line)" onclick="logout()">로그아웃</button>`
+    ? `<span class="muted">${esc(nick())}님${PROFILE?.tier === "paid" ? " · 유료회원" : ""}</span><button type="button" class="star" onclick="openCredits()" title="크레딧·친구 초대">💎 ${PROFILE?.tier === "paid" || PROFILE?.tier === "admin" ? "무제한" : (PROFILE?.credits ?? "…")}</button><button type="button" class="star" onclick="setMode('watch')">⭐ 관심 ${WATCH.size}${newCnt ? ` <b style="color:var(--bad)">· 새 소식 ${newCnt}</b>` : ""}</button><button type="button" style="background:none;color:var(--sub);border:1px solid var(--line)" onclick="logout()">로그아웃</button>`
     : `${WATCH.size ? `<button type="button" class="star" onclick="setMode('watch')">⭐ 관심 ${WATCH.size}</button>` : ""}<button type="button" class="kakao" onclick="login()">카카오로 시작하기</button>`;
 }
 async function login() {
@@ -1364,6 +1409,7 @@ async function autoCurst() {
     const r = await fetch(`/api/auctiondoc?id=${encodeURIComponent(a.id)}`, { headers: adminH() });
     let x; try { x = await r.json(); } catch { throw new Error(`서버 오류(${r.status})`); }
     if (!r.ok) throw new Error(x.오류 || "현황조사서를 가져오지 못했어요");
+    creditNote(x);
     DOC_STATE = { id: a.id, text: x.정리, names: "법원 현황조사서" + (x.저장시각 ? ` (${x.저장시각.slice(0, 10)} 정리)` : "") };
   } catch (e) { DOC_STATE = { id: a.id, err: e.message + " — 법원 사이트에서 서류를 받아 직접 올려도 돼요.", names: "현황조사서" }; }
   redraw();
@@ -1394,6 +1440,7 @@ async function readDocs(list) {
     const r = await fetch("/api/readdoc", { method: "POST", headers: { "Content-Type": "application/json", ...adminH() }, body: JSON.stringify({ files: parts, context: ctx }) });
     let x; try { x = await r.json(); } catch { throw new Error(r.status === 413 ? "파일이 너무 커요. 쪽수를 줄여 주세요." : `서버 오류(${r.status})`); }
     if (!r.ok) throw new Error(x.오류 || "서류를 읽지 못했어요");
+    creditNote(x);
     DOC_STATE = { id: a.id, text: x.정리, names };
   } catch (e) { DOC_STATE = { id: a.id, err: e.message, names }; }
   redraw();
@@ -1571,7 +1618,9 @@ function chatDraw(pending) {
     (m.programs?.length ? `<div class="cards">${m.programs.map((g) => `<div data-url="${esc(g.url || "https://www.bizinfo.go.kr")}"><b>${esc(g.title)}</b>
       <small>${esc(g.org || "")}${g.end ? " · 마감 " + esc(g.end) : ""}${g.target ? " · 대상: " + esc(String(g.target).slice(0, 40)) : ""}</small><small style="color:var(--accent)">기업마당 공고 보기 ↗</small></div>`).join("")}</div>` : "") +
     (m.areas?.list?.length ? `<div class="links">${m.areas.list.map((a) => `<a href="#" onclick="event.preventDefault();openArea('${esc(a.코드)}', '${esc(String(m.areas.biz || "").replace(/'/g, ""))}')">📊 ${esc(a.상권)} 자세히 보기</a>`).join("")}</div>` : "") +
-    (m.links?.length ? `<div class="links">${m.links.map((l) => `<a href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.기관)} ↗</a>`).join("")}</div>` : "");
+    (m.links?.length ? `<div class="links">${m.links.map((l) => `<a href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.기관)} ↗</a>`).join("")}</div>` : "") +
+    (m.login && !USER ? `<div style="margin-top:8px"><button type="button" class="kakao" onclick="login()">카카오로 시작하기 (+20크레딧)</button></div>` : "") +
+    (m.invite && USER ? `<div style="margin-top:8px"><button type="button" class="star" onclick="openCredits()">🎁 친구 초대하고 크레딧 받기</button></div>` : "");
   CHAT.forEach((m, i) => h += m.role === "divider" ? `<div class="muted" style="text-align:center;font-size:12px;margin:4px 0">── ${esc(m.content)} ──</div>` : m.role === "user" ? `<div class="mg u">${esc(m.content)}</div>` : `<div class="mg a">${md(m.content)}${extra(m)}<span style="display:flex;gap:12px"><button type="button" class="cp" data-c="${i}">복사</button><button type="button" class="cp" data-s="${i}">공유</button></span></div>`);
   if (pending) { WAIT_START ||= Date.now(); h += `<div class="mg a muted wait"><span class="dots"><i></i><i></i><i></i></span> <span id="waitMsg">${waitText()}</span></div>`; }
   else WAIT_START = 0;
@@ -1593,12 +1642,14 @@ async function chatSend(q) {
   $("#ci").value = ""; $("#cs").disabled = true;
   try {
     const r = await fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json", ...adminH() }, body: JSON.stringify({ messages: CHAT.slice(CHAT.map((m) => m.role).lastIndexOf("divider") + 1).filter((m) => !String(m.content).startsWith("⚠️")).slice(-10).map((m) => ({ role: m.role, content: m.content + (m.items?.length ? `\n[찾은 물건: ${m.items.map((i) => i.print_case_no).join(", ")}]` : "") })), context: pageContext(q) }) });
-    const x = await r.json();
-    if (!r.ok) throw new Error(x.오류 || "AI 상담 오류");
-    CHAT.push({ role: "assistant", content: x.답변 + (x.남은횟수 <= 3 ? `\n\n(오늘 남은 질문 ${x.남은횟수}번)` : ""), items: x.물건 || null, total: x.찾은건수 || 0, links: x.지원기관 || null, programs: x.공고 || null, areas: x.상권 || null });
+    const x = await r.json().catch(() => ({ 오류: `서버 오류(${r.status}). 잠시 뒤 다시 물어봐 주세요.` }));
+    if (!r.ok) { const er = new Error(x.오류 || "AI 상담 오류"); er.login = x.로그인권유; er.empty = x.크레딧부족; throw er; }
+    creditNote(x);
+    const tail = x.남은크레딧 == null ? "" : !x.회원 ? `\n\n(체험 크레딧 ${x.남은크레딧}개 남음 · 로그인하면 20크레딧)` : x.남은크레딧 <= 3 ? `\n\n(남은 크레딧 ${x.남은크레딧}개)` : "";
+    CHAT.push({ role: "assistant", content: x.답변 + tail, login: !x.회원 && x.남은크레딧 != null && x.남은크레딧 <= 1, items: x.물건 || null, total: x.찾은건수 || 0, links: x.지원기관 || null, programs: x.공고 || null, areas: x.상권 || null });
     saveChatHistory();
   } catch (e) {
-    CHAT.pop(); CHAT.push({ role: "user", content: q }); CHAT.push({ role: "assistant", content: "⚠️ " + e.message });
+    CHAT.pop(); CHAT.push({ role: "user", content: q }); CHAT.push({ role: "assistant", content: "⚠️ " + e.message, login: !!e.login, invite: !!e.empty });
   } finally { $("#cs").disabled = false; chatDraw(false); }
 }
 // ── 회원 AI 상담 기록: 마지막 대화를 저장해 두었다가 다음에 들어와도 이어 봄 ─────
