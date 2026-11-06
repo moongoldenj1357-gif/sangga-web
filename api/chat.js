@@ -1,5 +1,6 @@
 import { findPrograms } from "../lib/support.js";
 import { findTrdar, bizRegex } from "../lib/area.js";
+import { findLhShops } from "../lib/lh.js";
 // AI 상담 채팅 — 화면에 띄운 자료를 근거로 Claude(Haiku)가 답함
 import { createHash } from "node:crypto";
 import { isAdmin } from "../lib/admin.js";
@@ -50,6 +51,7 @@ const SYSTEM_TOOLS = `
 [도구 사용]
 - 사용자가 "○○동 20평 식당 자리 있어?", "1층 카페 할 만한 경매 상가"처럼 창업할 자리를 찾으면 search_auctions 도구로 지금 진행 중인 경매 물건을 찾으세요. 지역(동·구), 면적(평이면 ×3.3058로 ㎡ 환산, 범위는 ±15% 여유), 업종, 예산(원)을 넣으세요. 말하지 않은 조건은 비워 두세요.
 - 서울의 동네·상권과 업종을 말하면(예: "홍대 경양식집", "성수동 카페 어때?") 먼저 area_insight 도구로 그 상권의 유동인구와 업종 매출·점포·폐업률을 확인하고, 숫자는 도구 결과 그대로 쓰세요. 후보 상권이 여러 개면 1~2곳을 비교하세요. 방문객비중_서울백분위가 75 이상이면 놀러·쇼핑 오는 방문객 상권, 아니면 직장인비중_서울백분위가 75 이상이면 점심·퇴근길 상권, 35 이하면 동네 상권, 그 사이는 섞인 상권이라고 풀어 주세요. 유동인구 10대가 25% 이상이면 학교·학원가 성격도 짚어 주세요. "점포당 월 추정매출"은 서울시 추정치(분기 매출÷3÷점포 수)라 실제 가게마다 차이가 크다고 한 번 짚으세요. 경기·인천은 이 자료가 없다고 말하세요. 화면에 "이 상권 자세히 보기" 버튼이 따로 나오니 표를 길게 옮기지 마세요.
+- "싼 상가", "공공 임대상가", "LH 상가"를 묻거나 초기 비용을 줄이고 싶은 창업자에게는 public_shop_notices로 LH 상가 공고를 찾아 2~3개 소개하고, SH·GH·iH 같은 지역 공사도 상가 공고를 낸다고 알려 주세요. 공고는 화면에 카드로 나오니 자격·일정은 공고에서 확인하라고 하세요.
 - 공장·창고를 찾을 때는 kinds에 factory·warehouse를 넣고, 입지(용도지역·도로 폭·화물차 진입), 공장 설립·등록 가능 여부, 산업단지 입주 자격, 전기 용량, 층고·하중은 이 자료에 없으니 토지이음(eum.go.kr)의 토지이용계획과 시군 공장 인허가 부서에서 확인하라고 짧게 덧붙이세요.
 - 결과는 화면에 카드로 따로 보여지니, 답변에서는 몇 건이 나왔는지, 눈에 띄는 2~3건의 특징(층, 면적, 최저가, 유찰, 위험 표시), 고를 때 확인할 점만 짧게 정리하세요. 결과가 없으면 범위를 넓혀(옆 동, 구 전체, 면적 범위) 한 번 더 찾아보세요.
 - "적합 가능성"은 가능성일 뿐입니다. 경매 물건은 권리관계(임차인·유치권·대지권)를 반드시 확인해야 한다고 짧게 덧붙이세요.
@@ -80,6 +82,9 @@ const TOOLS = [
     input_schema: { type: "object", properties: {
       area: { type: "string", description: "상권·역·동네 이름. 예: 홍대, 연남동, 강남역, 성수동, 마포구 서교동" },
       business: { type: "string", description: "하려는 업종. 예: 경양식, 카페, 한식, 술집, 미용실" } }, required: ["area"] } },
+  { name: "public_shop_notices",
+    description: "LH(한국토지주택공사)가 낸 상가 분양·임대 공고(최근 4개월 안팎)를 서울·경기·인천별로 찾는다. 시세보다 싼 공공 상가를 찾는 창업자에게 유용.",
+    input_schema: { type: "object", properties: { region: { type: "string", enum: ["서울", "경기", "인천", ""] } } } },
   { name: "startup_support",
     description: "소상공인 창업 자금·보증·정부지원·교육·컨설팅 공식 기관 목록을 돌려준다.",
     input_schema: { type: "object", properties: { sido: { type: "string", enum: ["서울", "경기", "인천", "모름"] }, topic: { type: "string", description: "자금, 보증, 교육, 상권, 전체 등" } } } },
@@ -263,6 +268,7 @@ export default async function handler(req, res) {
           if (u.name === "search_auctions") { out = await searchAuctions(u.input || {}); found = out; }
           else if (u.name === "startup_support") { out = startupSupport(u.input || {}); support = out; }
           else if (u.name === "area_insight") { out = await areaInsight(u.input || {}, base); if (out.결과?.length) areas = { list: out.결과.map((x) => ({ 코드: x.코드, 상권: x.상권, 종류: x.종류, 위치: x.위치 })), biz: u.input?.business || "" }; }
+          else if (u.name === "public_shop_notices") { out = await findLhShops(u.input || {}); support = { 기관: out.다른곳 }; if (out.공고?.length) programs = { 공고: out.공고.map((g) => ({ title: g.제목, org: `LH ${g.유형} · ${g.지역}`, end: g.마감일 || g.상태, url: g.url })) }; }
           else if (u.name === "find_support_programs") { out = await findPrograms(u.input || {}); programs = out; delete out._sampleFields; }
           else out = { 오류: "없는 도구" };
         } catch (e) { out = { 오류: String(e.message || e) }; }
