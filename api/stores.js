@@ -126,7 +126,60 @@ async function probe(req, res) {
   return res.status(200).json(out);
 }
 
+// ── 상권 업종별 추정매출 + 점포 수 (/api/stores?selng=<상권코드>)
+let SELQ = null, SELQ_AT = 0;
+async function seoulSvc(svc, path) {
+  const j = await fetch(`http://openapi.seoul.go.kr:8088/${encodeURIComponent(SKEY)}/json/${svc}/${path}`, { signal: AbortSignal.timeout(25000) }).then((x) => x.json());
+  const b = j[svc] || {};
+  return { rows: b.row || [], total: Number(b.list_total_count || 0), code: b.RESULT?.CODE || j.RESULT?.CODE };
+}
+async function selngQuarter(startYq) {
+  if (SELQ && Date.now() - SELQ_AT < 12 * 3600_000) return SELQ;
+  let y = Number(String(startYq).slice(0, 4)), q = Number(String(startYq).slice(4));
+  for (let i = 0; i < 4; i++) {
+    const yq = `${y}${q}`, first = await seoulSvc("VwsmTrdarSelngQq", `1/1000/${yq}`);
+    if (first.rows.length && String(first.rows[0].STDR_YYQU_CD) === yq) {
+      const starts = []; for (let s = 1001; s <= Math.min(first.total, 40000); s += 1000) starts.push(s);
+      let rows = first.rows;
+      for (let i2 = 0; i2 < starts.length; i2 += 6) {
+        const part = await Promise.all(starts.slice(i2, i2 + 6).map((s) => seoulSvc("VwsmTrdarSelngQq", `${s}/${s + 999}/${yq}`).then((x) => x.rows)));
+        rows = rows.concat(...part);
+      }
+      const by = new Map();
+      for (const r of rows) { const k = String(r.TRDAR_CD); if (!by.has(k)) by.set(k, []); by.get(k).push(r); }
+      SELQ = { yq, by }; SELQ_AT = Date.now(); return SELQ;
+    }
+    q--; if (q === 0) { q = 4; y--; }
+  }
+  throw new Error("추정매출 자료를 찾지 못했어요.");
+}
+async function selng(req, res) {
+  if (!SKEY) return res.status(500).json({ 오류: "Vercel 환경변수 SEOUL_DATA_KEY가 없어요." });
+  const t = String(req.query.selng);
+  const F = await latestQuarter();
+  const S = await selngQuarter(F.yq);
+  const sel = S.by.get(t) || [];
+  const stor = (await seoulSvc("VwsmTrdarStorQq", `1/300/${S.yq}/${t}`)).rows.filter((r) => String(r.TRDAR_CD) === t && String(r.STDR_YYQU_CD) === S.yq);
+  const map = new Map();
+  for (const r of stor) map.set(r.SVC_INDUTY_CD, { 업종: r.SVC_INDUTY_CD_NM, 점포: num(r.STOR_CO), 유사점포: num(r.SIMILR_INDUTY_STOR_CO), 개업률: num(r.OPBIZ_RT), 폐업률: num(r.CLSBIZ_RT), 프랜차이즈: num(r.FRC_STOR_CO) });
+  const AG = ["10", "20", "30", "40", "50", "60_ABOVE"], TM = ["00_06", "06_11", "11_14", "14_17", "17_21", "21_24"];
+  for (const r of sel) {
+    const o = map.get(r.SVC_INDUTY_CD) || { 업종: r.SVC_INDUTY_CD_NM };
+    const ages = AG.map((a) => num(r[`AGRDE_${a}_SELNG_AMT`])), tms = TM.map((m) => num(r[`TMZON_${m}_SELNG_AMT`]));
+    Object.assign(o, { 분기매출: num(r.THSMON_SELNG_AMT), 분기건수: num(r.THSMON_SELNG_CO), 주중: num(r.MDWK_SELNG_AMT), 주말: num(r.WKEND_SELNG_AMT),
+      여성: num(r.FML_SELNG_AMT), 남성: num(r.ML_SELNG_AMT),
+      주연령: ["10대", "20대", "30대", "40대", "50대", "60대 이상"][ages.indexOf(Math.max(...ages))],
+      주시간: ["0~6시", "6~11시", "11~14시", "14~17시", "17~21시", "21~24시"][tms.indexOf(Math.max(...tms))] });
+    map.set(r.SVC_INDUTY_CD, o);
+  }
+  const list = [...map.values()].filter((o) => o.분기매출 || o.점포).sort((a, b) => (b.분기매출 || 0) - (a.분기매출 || 0));
+  res.setHeader("Cache-Control", "s-maxage=604800");
+  return res.status(200).json({ 분기: S.yq, 업종: list });
+}
+
+export const config = { maxDuration: 60 };
 export default async function handler(req, res) {
+  if (req.query?.selng) { try { return await selng(req, res); } catch (e) { return res.status(500).json({ 오류: e.message }); } }
   if (req.query?.probe) { try { return await probe(req, res); } catch (e) { return res.status(500).json({ 오류: e.message }); } }
   if (req.query?.flpop) { try { return await flpop(req, res); } catch (e) { return res.status(500).json({ 오류: e.message }); } }
   res.setHeader("Cache-Control", "s-maxage=86400");
