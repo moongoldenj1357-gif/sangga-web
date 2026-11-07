@@ -268,6 +268,10 @@ const ADMIN = (() => { try { const u = new URL(location.href), c = u.searchParam
   if (c) { localStorage.setItem("admin_code", c); u.searchParams.delete("admin"); history.replaceState(null, "", u.pathname + (u.search || "")); }
   return localStorage.getItem("admin_code") || ""; } catch { return ""; } })();
 const GID = (() => { try { let g = localStorage.getItem("gid"); if (!g) { g = (crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2) + Date.now().toString(36) + Math.random().toString(36).slice(2)); localStorage.setItem("gid", g); } return g; } catch { return ""; } })();
+// 토스 결제 후 돌아오면(?pay=success|fail) 값을 기억하고 주소창은 정리
+const PAY_RETURN = (() => { try { const u = new URL(location.href), p = u.searchParams.get("pay"); if (p !== "success" && p !== "fail") return null;
+  const r = { kind: p, paymentKey: u.searchParams.get("paymentKey"), orderId: u.searchParams.get("orderId"), amount: u.searchParams.get("amount"), code: u.searchParams.get("code"), message: u.searchParams.get("message") };
+  ["pay", "paymentKey", "orderId", "amount", "code", "message", "paymentType"].forEach((k) => u.searchParams.delete(k)); history.replaceState(null, "", u.pathname + (u.search || "")); return r; } catch { return null; } })();
 // 친구 초대 링크(?ref=코드)로 들어오면 기억해 두었다가 가입 직후 등록
 (() => { try { const u = new URL(location.href), c = u.searchParams.get("ref"); if (c && /^[A-Za-z0-9]{5,10}$/.test(c)) { localStorage.setItem("ref_code", c.toUpperCase()); u.searchParams.delete("ref"); history.replaceState(null, "", u.pathname + (u.search || "")); } } catch {} })();
 const adminH = () => ({ ...(ADMIN ? { "x-admin-code": encodeURIComponent(ADMIN) } : {}), ...(ACCESS ? { Authorization: "Bearer " + ACCESS } : {}), ...(GID ? { "x-guest-id": GID } : {}) });
@@ -1154,12 +1158,56 @@ async function openCredits() {
     <div class="note" style="margin:0 0 12px"><b>🎁 친구 초대</b> — 이 링크로 친구가 가입하면 친구는 <b>+20크레딧</b>, 친구가 AI를 처음 쓰면 나는 <b>+5크레딧</b> (10명까지, 지금 ${P.ref_count || 0}명)
       <div style="display:flex;gap:6px;margin-top:8px"><input readonly value="${esc(link)}" style="flex:1;min-width:0;font-size:13px" onclick="this.select()"><button type="button" id="refCopy">복사</button>${navigator.share ? `<button type="button" id="refShare">보내기</button>` : ""}</div></div>
     ${log?.length ? `<b style="font-size:14px">최근 내역</b><table style="width:100%;font-size:13px;margin-top:4px">${log.map((l) => `<tr><td class="muted">${new Date(l.at).toLocaleString("ko-KR", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}</td><td>${esc(l.reason)}</td><td style="text-align:right;color:${l.delta > 0 ? "var(--accent)" : "var(--sub)"}">${l.delta > 0 ? "+" : ""}${l.delta}</td></tr>`).join("")}</table>` : ""}
-    <p class="muted" style="font-size:12px;margin:10px 0 0">크레딧 충전·유료회원은 준비 중이에요.</p></div>`;
+    <div id="packBox" style="margin-top:12px"></div></div>`;
   d.onclick = (e) => { if (e.target === d) d.remove(); };
   document.body.appendChild(d);
   const text = "상가 경매·상권·창업 정보를 한 화면에서 보는 '좋은목'이에요. 이 링크로 가입하면 AI 상담 크레딧 20개를 더 받아요.";
   $("#refCopy").onclick = async () => { try { await navigator.clipboard.writeText(link); $("#refCopy").textContent = "복사됨"; } catch { d.querySelector("input").select(); } };
   if ($("#refShare")) $("#refShare").onclick = () => navigator.share({ title: "좋은목", text, url: link }).catch(() => {});
+  loadPacks();
+}
+// ── 크레딧 충전 (토스페이먼츠 결제창) ─────────────────────────
+async function loadPacks() {
+  const box = $("#packBox"); if (!box) return;
+  try {
+    const x = await fetch("/api/account?pay=packs").then((r) => r.json());
+    if (!x.결제) { box.innerHTML = `<p class="muted" style="font-size:12px;margin:0">크레딧 충전은 준비 중이에요.</p>`; return; }
+    box.innerHTML = `<b style="font-size:14px">💳 크레딧 충전</b>${x.테스트 ? ` <span class="pill mid" style="font-size:11px">테스트 결제 · 실제로 돈이 나가지 않아요</span>` : ""}
+      <div style="display:flex;gap:8px;margin-top:6px;flex-wrap:wrap">${x.상품.map((p) => `<button type="button" class="packBtn" data-id="${esc(p.id)}" style="flex:1;min-width:130px;padding:10px;background:#fff;color:var(--ink);border:1px solid var(--accent);border-radius:10px;text-align:left"><b style="color:var(--accent)">${p.credits}크레딧</b><br><span style="font-size:15px">${p.amount.toLocaleString()}원</span> <span class="muted" style="font-size:12px">(1크레딧 ${Math.round(p.amount / p.credits)}원)</span></button>`).join("")}</div>
+      <label style="display:flex;gap:6px;align-items:flex-start;font-size:12.5px;margin-top:8px"><input type="checkbox" id="payAgree" style="margin-top:3px"> <span>결제 내용과 <a href="/terms.html#pay" target="_blank">결제·환불 규정</a>을 확인했어요. 충전한 크레딧은 AI 상담·서류 정리에만 쓰여요.</span></label>
+      <div id="payMsg" class="muted" style="font-size:12.5px;margin-top:4px"></div>`;
+    box.querySelectorAll(".packBtn").forEach((b) => b.onclick = () => buyPack(b.dataset.id));
+  } catch { box.innerHTML = ""; }
+}
+function loadTossSdk() {
+  return window.TossPayments ? Promise.resolve() : new Promise((ok, no) => { const sc = document.createElement("script"); sc.src = "https://js.tosspayments.com/v2/standard"; sc.onload = ok; sc.onerror = () => no(new Error("결제 모듈을 불러오지 못했어요.")); document.head.appendChild(sc); });
+}
+async function buyPack(id) {
+  const msg = $("#payMsg");
+  if (!$("#payAgree")?.checked) { msg.innerHTML = `<span style="color:var(--bad)">결제·환불 규정 확인에 체크해 주세요.</span>`; return; }
+  msg.textContent = "결제창을 여는 중…";
+  try {
+    const r = await fetch("/api/account?pay=order", { method: "POST", headers: { "Content-Type": "application/json", ...adminH() }, body: JSON.stringify({ pack: id }) });
+    const o = await r.json().catch(() => ({ 오류: `서버 오류(${r.status})` }));
+    if (!r.ok) throw new Error(o.오류 || "주문을 만들지 못했어요.");
+    await loadTossSdk();
+    const payment = window.TossPayments(o.clientKey).payment({ customerKey: o.customerKey });
+    await payment.requestPayment({ method: "CARD", amount: { currency: "KRW", value: o.amount }, orderId: o.orderId, orderName: o.orderName,
+      successUrl: location.origin + "/?pay=success", failUrl: location.origin + "/?pay=fail", ...(USER?.email ? { customerEmail: USER.email } : {}), customerName: nick() });
+  } catch (e) { if (msg) msg.innerHTML = /USER_CANCEL|취소/.test(e.code || e.message) ? "결제를 취소했어요." : `<span style="color:var(--bad)">${esc(e.message)}</span>`; }
+}
+let PAY_DONE = false;
+async function handlePayReturn() {
+  if (!PAY_RETURN || PAY_DONE || !USER) return; PAY_DONE = true;
+  if (PAY_RETURN.kind === "fail") { alertBox(/PAY_PROCESS_CANCELED|USER_CANCEL/.test(PAY_RETURN.code || "") ? "결제를 취소했어요." : `결제가 되지 않았어요: ${esc(PAY_RETURN.message || PAY_RETURN.code || "")}`); return; }
+  alertBox("결제를 확인하는 중이에요… 창을 닫지 마세요.");
+  try {
+    const r = await fetch("/api/account?pay=confirm", { method: "POST", headers: { "Content-Type": "application/json", ...adminH() }, body: JSON.stringify({ paymentKey: PAY_RETURN.paymentKey, orderId: PAY_RETURN.orderId, amount: Number(PAY_RETURN.amount) }) });
+    const x = await r.json().catch(() => ({ 오류: `서버 오류(${r.status})` }));
+    if (!r.ok || !x.완료) throw new Error(x.오류 || "결제 확인 실패");
+    await reloadProfile();
+    alertBox(`💎 <b>${x.충전}크레딧</b>을 충전했어요! 지금 ${PROFILE?.credits ?? x.남은크레딧}크레딧이에요.${x.영수증 ? ` <a href="${esc(x.영수증)}" target="_blank" rel="noopener">영수증</a>` : ""}`);
+  } catch (e) { alertBox(`⚠️ ${esc(e.message)} — 카드에서 돈이 빠져나갔다면 ${esc("moongoldenj@naver.com")}으로 주문번호 ${esc(PAY_RETURN.orderId || "")}와 함께 알려 주세요.`); }
 }
 // 비회원 관심 물건: 이 기기(브라우저)에만 저장. 로그인하면 회원 목록으로 옮김
 const GW_KEY = "guest_watch_v1";
@@ -1182,6 +1230,7 @@ async function afterAuth() {
   drawUser(); refreshStar(); loadAlerts();
   loadChatHistory();
   claimRef();
+  handlePayReturn();
 }
 function nick() { return PROFILE?.nickname || USER?.user_metadata?.name || USER?.user_metadata?.nickname || "회원"; }
 function drawUser(newCnt) {
