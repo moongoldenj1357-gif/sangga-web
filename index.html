@@ -1157,7 +1157,7 @@ async function openCredits() {
   d.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:120;display:flex;align-items:center;justify-content:center;padding:16px";
   d.innerHTML = `<div class="card" style="max-width:440px;width:100%;margin:0;max-height:90vh;overflow:auto">
     <div style="display:flex;justify-content:space-between;align-items:center"><h2 style="margin:0;font-size:18px">💎 내 크레딧 ${P.tier === "paid" || P.tier === "admin" ? "· 무제한" : `<b style="color:var(--accent)">${P.credits ?? 0}</b>`}</h2><button type="button" onclick="this.closest('#creditDlg').remove()" style="background:none;color:var(--sub);font-size:20px">✕</button></div>
-    <p class="muted" style="font-size:13px;margin:6px 0 12px">AI 상담 1 · 올린 서류 읽기 3 · 현황조사서 자동 정리 2크레딧. 나머지 기능(경매·공매 찾기, 상권, 지원사업, 관심 물건)은 무료예요. 매달 1일에 5크레딧보다 적으면 5크레딧으로 채워 드려요.</p>
+    <p class="muted" style="font-size:13px;margin:6px 0 12px">AI 상담은 <b>우리 자료를 찾아본 답변만 1크레딧</b>(사용법·용어 설명은 하루 20번 무료) · 올린 서류 읽기 3 · 현황조사서 자동 정리 2크레딧. 나머지 기능(경매·공매 찾기, 상권, 지원사업, 관심 물건)은 무료예요. 매달 1일에 5크레딧보다 적으면 5크레딧으로 채워 드려요.</p>
     <div class="note" style="margin:0 0 12px"><b>🎁 친구 초대</b> — 이 링크로 친구가 가입하면 친구는 <b>+20크레딧</b>, 친구가 AI를 처음 쓰면 나는 <b>+5크레딧</b> (10명까지, 지금 ${P.ref_count || 0}명)
       <div style="display:flex;gap:6px;margin-top:8px"><input readonly value="${esc(link)}" style="flex:1;min-width:0;font-size:13px" onclick="this.select()"><button type="button" id="refCopy">복사</button>${navigator.share ? `<button type="button" id="refShare">보내기</button>` : ""}</div></div>
     ${log?.length ? `<b style="font-size:14px">최근 내역</b><table style="width:100%;font-size:13px;margin-top:4px">${log.map((l) => `<tr><td class="muted">${new Date(l.at).toLocaleString("ko-KR", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}</td><td>${esc(l.reason)}</td><td style="text-align:right;color:${l.delta > 0 ? "var(--accent)" : "var(--sub)"}">${l.delta > 0 ? "+" : ""}${l.delta}</td></tr>`).join("")}</table>` : ""}
@@ -1862,6 +1862,7 @@ function chatDraw(pending) {
       <small>${esc(g.org || "")}${g.end ? " · 마감 " + esc(g.end) : ""}${g.target ? " · 대상: " + esc(String(g.target).slice(0, 40)) : ""}</small><small style="color:var(--accent)">기업마당 공고 보기 ↗</small></div>`).join("")}</div>` : "") +
     (m.areas?.list?.length ? `<div class="links">${m.areas.list.map((a) => `<a href="#" onclick="event.preventDefault();openArea('${esc(a.코드)}', '${esc(String(m.areas.biz || "").replace(/'/g, ""))}')">📊 ${esc(a.상권)} 자세히 보기</a>`).join("")}</div>` : "") +
     (m.links?.length ? `<div class="links">${m.links.map((l) => `<a href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.기관)} ↗</a>`).join("")}</div>` : "") +
+    (m.meta ? `<div class="muted" style="font-size:12px;margin-top:6px">${esc(m.meta)}${/1크레딧|무료 모드|설명만/.test(m.meta) && !/남은 [1-9]/.test(m.meta) && USER ? ` · <a href="#" onclick="event.preventDefault();openCredits()">충전</a>` : ""}</div>` : "") +
     (m.precs?.length ? `<div style="margin-top:8px"><small class="muted">⚖️ 판례 (눌러서 보기)</small><div style="display:flex;flex-direction:column;gap:4px;margin-top:4px">${m.precs.map((p) => `<button type="button" class="hq" style="text-align:left" onclick="precOpen('${esc(p.id)}')">${esc(p.법원 || "대법원")} ${esc(p.사건번호 || "")} <span class="muted" style="font-size:12px">${esc(p.선고일 || "")} · ${esc(String(p.사건명 || "").slice(0, 30))}${p.영상 ? " · ▶영상" : ""}</span></button>`).join("")}</div></div>` : "") +
     (m.login && !USER ? `<div style="margin-top:8px"><button type="button" class="kakao" onclick="login()">카카오로 시작하기 (+20크레딧)</button></div>` : "") +
     (m.invite && USER ? `<div style="margin-top:8px"><button type="button" class="star" onclick="openCredits()">🎁 친구 초대하고 크레딧 받기</button></div>` : "");
@@ -1889,8 +1890,11 @@ async function chatSend(q) {
     const x = await r.json().catch(() => ({ 오류: `서버 오류(${r.status}). 잠시 뒤 다시 물어봐 주세요.` }));
     if (!r.ok) { const er = new Error(x.오류 || "AI 상담 오류"); er.login = x.로그인권유; er.empty = x.크레딧부족; throw er; }
     creditNote(x);
-    const tail = x.남은크레딧 == null ? "" : !x.회원 ? `\n\n(체험 크레딧 ${x.남은크레딧}개 남음 · 로그인하면 20크레딧)` : x.남은크레딧 <= 3 ? `\n\n(남은 크레딧 ${x.남은크레딧}개)` : "";
-    CHAT.push({ role: "assistant", content: x.답변 + tail, login: !x.회원 && x.남은크레딧 != null && x.남은크레딧 <= 1, items: x.물건 || null, total: x.찾은건수 || 0, links: x.지원기관 || null, programs: x.공고 || null, areas: x.상권 || null, precs: x.판례 || null });
+    const tail = "";
+    const meta = x.차감 ? `💎 우리 자료를 찾아본 답변이라 1크레딧을 썼어요 · 남은 ${x.남은크레딧 ?? "-"}${x.회원 ? "" : " (체험)"}`
+      : x.무료모드 ? `무료 답변 · 크레딧이 없어 자료 조회 없이 설명만 했어요 · 오늘 무료 ${x.무료남음 ?? 0}번 남음`
+      : x.무료남음 != null ? `무료 답변 · 자료 조회가 없어 크레딧을 쓰지 않았어요 · 오늘 무료 ${x.무료남음}번 남음` : "";
+    CHAT.push({ role: "assistant", content: x.답변 + tail, meta, login: !x.회원 && x.남은크레딧 != null && x.남은크레딧 <= 1, invite: !!x.회원 && x.무료모드, items: x.물건 || null, total: x.찾은건수 || 0, links: x.지원기관 || null, programs: x.공고 || null, areas: x.상권 || null, precs: x.판례 || null });
     saveChatHistory();
   } catch (e) {
     CHAT.pop(); CHAT.push({ role: "user", content: q }); CHAT.push({ role: "assistant", content: "⚠️ " + e.message, login: !!e.login, invite: !!e.empty });
