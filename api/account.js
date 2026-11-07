@@ -1,10 +1,13 @@
 // 계정·공유·공고 모음 (api 파일 수를 줄이려고 합침)
 //  GET  ?config=1            → 화면 로그인용 Supabase 주소와 공개 키
 //  POST (body)               → AI 답변 공유 링크 만들기 /  GET ?id= → 공유된 답변 읽기
+//  GET  ?prec=1&topic= | &text= | &q= | &id=  → 판례 (POST ?prec=1 은 관리자: seed / add / meta / ping)
 //  GET  ?support=1&lh=1      → LH 상가 공고 /  GET ?support=1&region=&q=&limit=&orgs=1 → 기업마당 지원사업(+공식 기관)
 import { randomBytes } from "node:crypto";
 import { findPrograms, SUPPORT } from "../lib/support.js";
 import { findLhShops } from "../lib/lh.js";
+import { isAdmin } from "../lib/admin.js";
+import { TOPICS, topicsOf, precByTopic, precSearchDb, precDetail, seedTopic, addByCaseNos, setMeta, searchPrec, precUrl } from "../lib/law.js";
 const SB_URL = (process.env.SUPABASE_URL ?? "").trim().replace(/\/+$/, "").replace(/\/rest\/v1$/, "");
 const SB_KEY = process.env.SUPABASE_SECRET_KEY ?? "";
 const PUB_KEY = (process.env.SUPABASE_PUBLISHABLE_KEY ?? "").trim();
@@ -27,6 +30,30 @@ export default async function handler(req, res) {
       if (q.orgs) { const sd = String(q.region || "").slice(0, 2); x.기관 = SUPPORT.filter((o) => !o.sido || !sd || o.sido === sd); }
       delete x._sampleFields;
       return res.status(200).json(x);
+    } catch (e) { return res.status(500).json({ 오류: e.message }); }
+  }
+
+  if (q.prec) {
+    try {
+      if (req.method === "POST") {
+        if (!isAdmin(req)) return res.status(403).json({ 오류: "관리자만 할 수 있어요." });
+        const b = typeof req.body === "string" ? JSON.parse(req.body || "{}") : (req.body || {});
+        if (b.action === "ping") { const x = await searchPrec({ query: "유치권", display: 1 }); return res.status(200).json({ 연결: "정상", 유치권판례수: x.total }); }
+        if (b.action === "seed") return res.status(200).json(await seedTopic(b.topic, Math.min(Number(b.pages) || 1, 5)));
+        if (b.action === "add") return res.status(200).json({ 결과: await addByCaseNos(String(b.case_nos || "").split(/[\s,·]+/).filter(Boolean), b.topic || "", b.note || "") });
+        if (b.action === "meta") return res.status(200).json(await setMeta(String(b.id), b));
+        return res.status(400).json({ 오류: "알 수 없는 요청" });
+      }
+      res.setHeader("Cache-Control", "s-maxage=600");
+      if (q.id) { const d = await precDetail(String(q.id)); return res.status(200).json({ ...d, 원문: precUrl(d.id) }); }
+      const topics = q.topic ? [String(q.topic)] : q.text ? topicsOf(String(q.text)) : [];
+      if (topics.length) {
+        const out = [];
+        for (const t of topics.slice(0, 3)) out.push({ 주제: t, 설명: TOPICS.find((x) => x.key === t)?.hint, 판례: await precByTopic(t, Number(q.n) || 4) });
+        return res.status(200).json({ 주제들: out });
+      }
+      if (q.q) return res.status(200).json({ 판례: await precSearchDb(String(q.q), 10) });
+      return res.status(200).json({ 주제목록: TOPICS.map((x) => x.key) });
     } catch (e) { return res.status(500).json({ 오류: e.message }); }
   }
 

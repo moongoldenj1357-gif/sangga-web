@@ -4,6 +4,7 @@ import { findLhShops } from "../lib/lh.js";
 // AI 상담 채팅 — 화면에 띄운 자료를 근거로 Claude(Haiku)가 답함
 import { createHash } from "node:crypto";
 import { spend } from "../lib/credit.js";
+import { precForAi, TOPICS as PREC_TOPICS } from "../lib/law.js";
 
 const API_KEY = process.env.ANTHROPIC_API_KEY ?? "";
 const MODEL = process.env.CHAT_MODEL || "claude-haiku-5-5";
@@ -54,6 +55,7 @@ const SYSTEM_TOOLS = `
 - 공장·창고를 찾을 때는 kinds에 factory·warehouse를 넣고, 입지(용도지역·도로 폭·화물차 진입), 공장 설립·등록 가능 여부, 산업단지 입주 자격, 전기 용량, 층고·하중은 이 자료에 없으니 토지이음(eum.go.kr)의 토지이용계획과 시군 공장 인허가 부서에서 확인하라고 짧게 덧붙이세요.
 - 결과는 화면에 카드로 따로 보여지니, 답변에서는 몇 건이 나왔는지, 눈에 띄는 2~3건의 특징(층, 면적, 최저가, 유찰, 위험 표시), 고를 때 확인할 점만 짧게 정리하세요. 결과가 없으면 범위를 넓혀(옆 동, 구 전체, 면적 범위) 한 번 더 찾아보세요.
 - "적합 가능성"은 가능성일 뿐입니다. 경매 물건은 권리관계(임차인·유치권·대지권)를 반드시 확인해야 한다고 짧게 덧붙이세요.
+- 유치권·법정지상권·분묘기지권·대항력 있는 임차인처럼 경매 권리관계를 묻거나, 물건 비고에 그런 말이 있으면 precedents 도구로 대법원 판례를 찾아 핵심 법리를 2~4줄로 설명하세요. 판례를 말할 때는 반드시 도구 결과에 있는 법원·사건번호·선고일만 쓰고, 결과에 없는 사건번호를 기억으로 지어내지 마세요. 결과가 없으면 "저장된 판례가 아직 없다"고 말하고 일반 원칙만 설명하세요. 판례는 사건마다 사실관계가 달라 결론이 다를 수 있고, 실제 사건은 매각물건명세서·현황조사서를 보고 변호사·법무사에게 확인하라고 덧붙이세요. 판례 목록은 화면에 따로 나오니 길게 옮기지 마세요.
 - 지원 공고를 찾을 때 region에는 "서울", "경기", "인천"처럼 시도를 넣고, 구·동 이름은 keywords에 넣으세요. field는 비워 두세요.
 - 소상공인 정책자금·보증·경영안정자금·창업교육·상권 활성화처럼 식당·카페 같은 생활 업종 창업자에게 도움이 되는 공고를 우선 소개하고, 직원 채용 장려금처럼 조건이 다른 공고는 "조건이 맞으면"이라고 구분하세요.
 - 창업 자금·대출·보증·정부지원·교육·컨설팅을 물으면 먼저 find_support_programs 도구로 기업마당의 지금 접수 중인 공고를 찾으세요(지역, 업종·대상 키워드). 공고는 화면에 카드로 따로 보여지니, 답변에서는 눈에 띄는 2~3개만 공고명·주관기관·마감일로 짧게 소개하세요. 공고가 없거나 오류면 startup_support 도구로 공식 기관 목록을 안내하세요. 금리·한도·지원금액처럼 바뀌는 숫자는 말하지 말고 "공고에서 확인"하라고 하세요. 기관명과 주소(URL)는 도구 결과에 있는 것만 쓰세요.`;
@@ -84,6 +86,9 @@ const TOOLS = [
   { name: "public_shop_notices",
     description: "LH(한국토지주택공사)가 낸 상가 분양·임대 공고(최근 4개월 안팎)를 서울·경기·인천별로 찾는다. 시세보다 싼 공공 상가를 찾는 창업자에게 유용.",
     input_schema: { type: "object", properties: { region: { type: "string", enum: ["서울", "경기", "인천", ""] } } } },
+  { name: "precedents",
+    description: "경매 권리관계(유치권, 법정지상권, 분묘기지권, 대항력 있는 임차인)에 관한 대법원 판례를 사이트 판례 저장소에서 찾는다. 판시사항·판결요지와 원문 링크를 돌려준다.",
+    input_schema: { type: "object", properties: { topic: { type: "string", enum: ["유치권", "법정지상권", "분묘기지권", "대항력 있는 임차인", ""] }, query: { type: "string", description: "주제에 없으면 검색어 (예: 공사대금 점유 압류)" } } } },
   { name: "startup_support",
     description: "소상공인 창업 자금·보증·정부지원·교육·컨설팅 공식 기관 목록을 돌려준다.",
     input_schema: { type: "object", properties: { sido: { type: "string", enum: ["서울", "경기", "인천", "모름"] }, topic: { type: "string", description: "자금, 보증, 교육, 상권, 전체 등" } } } },
@@ -220,7 +225,7 @@ export default async function handler(req, res) {
   const context = clip(body.context, 9000) || "(아직 조회한 주소가 없습니다)";
   try {
     const convo = [...msgs];
-    let found = null, support = null, programs = null, areas = null, d;
+    let found = null, support = null, programs = null, areas = null, precs = null, d;
     const base = `https://${req.headers["x-forwarded-host"] || req.headers.host}`;
     for (let step = 0; step < 4; step++) {
       const r = await fetch("https://api.anthropic.com/v1/messages", {
@@ -250,6 +255,7 @@ export default async function handler(req, res) {
           else if (u.name === "startup_support") { out = startupSupport(u.input || {}); support = out; }
           else if (u.name === "area_insight") { out = await areaInsight(u.input || {}, base); if (out.결과?.length) areas = { list: out.결과.map((x) => ({ 코드: x.코드, 상권: x.상권, 종류: x.종류, 위치: x.위치 })), biz: u.input?.business || "" }; }
           else if (u.name === "public_shop_notices") { out = await findLhShops(u.input || {}); support = { 기관: out.다른곳 }; if (out.공고?.length) programs = { 공고: out.공고.map((g) => ({ title: g.제목, org: `LH ${g.유형} · ${g.지역}`, end: g.마감일 || g.상태, url: g.url })) }; }
+          else if (u.name === "precedents") { out = await precForAi(u.input || {}); if (out.판례?.length) precs = out.판례.map((p) => ({ id: p.id, 사건번호: p.사건번호, 선고일: p.선고일, 사건명: p.사건명, 법원: p.법원, 영상: p.영상 })); }
           else if (u.name === "find_support_programs") { out = await findPrograms(u.input || {}); programs = out; delete out._sampleFields; }
           else out = { 오류: "없는 도구" };
         } catch (e) { out = { 오류: String(e.message || e) }; }
@@ -262,7 +268,7 @@ export default async function handler(req, res) {
     const text = (d.content || []).filter((c) => c.type === "text").map((c) => c.text).join("\n").trim();
     const cut = d.stop_reason === "max_tokens" ? "\n\n(답변이 길어 여기서 끊겼어요. \"이어서\"라고 보내면 계속해요.)" : "";
     return res.status(200).json({ 답변: (text || "답변을 만들지 못했어요. 다시 물어봐 주세요.") + cut, 남은크레딧: pay.left, 회원: !!pay.me.id,
-      ...(found ? { 물건: found.물건.map(({ raw, ...x }) => x), 찾은건수: found.찾은건수 } : {}), ...(support ? { 지원기관: support.기관 } : {}), ...(programs?.공고?.length ? { 공고: programs.공고 } : {}), ...(areas ? { 상권: areas } : {}) });
+      ...(found ? { 물건: found.물건.map(({ raw, ...x }) => x), 찾은건수: found.찾은건수 } : {}), ...(support ? { 지원기관: support.기관 } : {}), ...(programs?.공고?.length ? { 공고: programs.공고 } : {}), ...(areas ? { 상권: areas } : {}), ...(precs ? { 판례: precs } : {}) });
   } catch (e) {
     await pay.refund();
     return res.status(504).json({ 오류: "AI 응답이 늦어요. 잠시 후 다시 시도해 주세요. (크레딧은 돌려 드렸어요)" });
