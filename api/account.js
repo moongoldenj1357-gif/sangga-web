@@ -7,7 +7,7 @@ import { randomBytes } from "node:crypto";
 import { findPrograms, SUPPORT } from "../lib/support.js";
 import { findLhShops } from "../lib/lh.js";
 import { isAdmin } from "../lib/admin.js";
-import { TOPICS, topicsOf, precByTopic, precSearchDb, precDetail, seedTopic, addByCaseNos, setMeta, searchPrec, precUrl } from "../lib/law.js";
+import { TOPICS, topicsOf, precByTopic, precSearchDb, precDetail, seedTopic, addByCaseNos, setMeta, searchPrec, precUrl, diagnose } from "../lib/law.js";
 const SB_URL = (process.env.SUPABASE_URL ?? "").trim().replace(/\/+$/, "").replace(/\/rest\/v1$/, "");
 const SB_KEY = process.env.SUPABASE_SECRET_KEY ?? "";
 const PUB_KEY = (process.env.SUPABASE_PUBLISHABLE_KEY ?? "").trim();
@@ -38,7 +38,10 @@ export default async function handler(req, res) {
       if (req.method === "POST") {
         if (!isAdmin(req)) return res.status(403).json({ 오류: "관리자만 할 수 있어요." });
         const b = typeof req.body === "string" ? JSON.parse(req.body || "{}") : (req.body || {});
-        if (b.action === "ping") { const x = await searchPrec({ query: "유치권", display: 1 }); return res.status(200).json({ 연결: "정상", 유치권판례수: x.total }); }
+        if (b.action === "ping") {
+          try { const x = await searchPrec({ query: "유치권", display: 1 }); return res.status(200).json({ 연결: "정상", 유치권판례수: x.total }); }
+          catch (e) { return res.status(200).json({ 연결: "실패", 이유: e.message, 진단: await diagnose() }); }
+        }
         if (b.action === "seed") return res.status(200).json(await seedTopic(b.topic, Math.min(Number(b.pages) || 1, 5)));
         if (b.action === "add") return res.status(200).json({ 결과: await addByCaseNos(String(b.case_nos || "").split(/[\s,·]+/).filter(Boolean), b.topic || "", b.note || "") });
         if (b.action === "meta") return res.status(200).json(await setMeta(String(b.id), b));
