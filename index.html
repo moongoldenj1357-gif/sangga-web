@@ -1019,6 +1019,92 @@ async function initAuth() {
     const { data } = await SB.auth.getSession(); ACCESS = data.session?.access_token || null; USER = data.session?.user || null; afterAuth();
   } catch { $("#userBox").innerHTML = ""; }
 }
+// ── 판례 (유치권·법정지상권 등) ────────────────────────────────
+const PREC_CACHE = {};
+const PREC_RE = /유치권|법정지상권|관습법상\s*지상권|분묘|대항력|선순위\s*임차/;
+async function fillPrecBox(a) {
+  const box = $("#precBox"); if (!box) return;
+  const text = `${a.remarks || ""} ${a.name || ""}`;
+  if (!PREC_RE.test(text)) { box.innerHTML = ""; return; }
+  const key = text.slice(0, 300);
+  if (!PREC_CACHE[key]) PREC_CACHE[key] = fetch("/api/account?prec=1&n=4&text=" + encodeURIComponent(key)).then((r) => r.json()).catch(() => ({}));
+  const x = await PREC_CACHE[key];
+  if (!$("#precBox") || AUC !== a) return;
+  $("#precBox").innerHTML = precCard(x.주제들 || []);
+}
+function precCard(groups) {
+  if (!groups.length) return "";
+  return `<div class="card" style="margin:12px 0 0;background:#f7f6fb;border-color:#dcd8ec">
+    <h2 style="font-size:16px;margin:0 0 6px">⚖️ 관련 대법원 판례 <span class="muted" style="font-size:13px">비고에 나온 권리관계</span></h2>
+    ${groups.map((g) => `<div style="margin-top:8px"><b>${esc(g.주제)}</b><div class="muted" style="font-size:13.5px;margin:2px 0 6px">${esc(g.설명 || "")}</div>
+      ${g.판례?.length ? g.판례.map(precLine).join("") : `<div class="muted" style="font-size:13px">판례를 준비 중이에요.${ADMIN ? ` <a href="#" onclick="event.preventDefault();precAdmin('${esc(g.주제)}')">[관리자] 법제처에서 불러오기</a>` : ""}</div>`}</div>`).join("")}
+    <p class="muted" style="font-size:12px;margin:10px 0 0">판례는 사건마다 사실관계가 달라 결론이 다를 수 있어요. 이 물건의 실제 권리관계는 매각물건명세서·현황조사서를 보고 변호사·법무사에게 확인하세요. 출처: 법제처 국가법령정보센터.${ADMIN ? ` · <a href="#" onclick="event.preventDefault();precAdmin()">[관리자] 판례 관리</a>` : ""}</p>
+  </div>`;
+}
+function precLine(p) {
+  return `<div class="prec" onclick="precOpen('${esc(p.id)}')" style="cursor:pointer;padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:#fff;margin-top:6px">
+    <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center"><b style="font-size:14px">${esc(p.court || "대법원")} ${esc(p.case_no || "")}</b><span class="muted" style="font-size:12.5px">${esc(p.decided || "")}</span>${p.curated ? `<span class="pill ok" style="font-size:11px">대표</span>` : ""}${p.video_url ? `<span class="pill mid" style="font-size:11px">▶ 영상</span>` : ""}</div>
+    <div style="font-size:13.5px">${esc(p.name || "")}</div>
+    ${p.note || p.holding ? `<div class="muted" style="font-size:12.5px;margin-top:2px">${esc(String(p.note || p.holding).replace(/\s+/g, " ").slice(0, 110))}…</div>` : ""}</div>`;
+}
+async function precOpen(id) {
+  const d = document.createElement("div");
+  d.id = "precDlg";
+  d.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:120;display:flex;align-items:center;justify-content:center;padding:16px";
+  d.innerHTML = `<div class="card" style="max-width:720px;width:100%;margin:0;max-height:90vh;overflow:auto"><div class="muted">판례를 불러오는 중…</div></div>`;
+  d.onclick = (e) => { if (e.target === d) d.remove(); };
+  document.body.appendChild(d);
+  try {
+    const r = await fetch("/api/account?prec=1&id=" + encodeURIComponent(id)), p = await r.json();
+    if (!r.ok) throw new Error(p.오류 || "판례를 불러오지 못했어요");
+    const sec = (t, v) => v ? `<h3 style="font-size:15px;margin:14px 0 4px">${t}</h3><div style="white-space:pre-wrap;font-size:14px;line-height:1.7">${esc(v)}</div>` : "";
+    d.firstElementChild.innerHTML = `<div style="display:flex;justify-content:space-between;gap:10px"><div><h2 style="margin:0;font-size:18px">${esc(p.court || "대법원")} ${esc(p.case_no || "")}</h2><div class="muted">${esc(p.decided || "")} 선고 · ${esc(p.name || "")}</div></div><button type="button" onclick="this.closest('#precDlg').remove()" style="background:none;color:var(--sub);font-size:20px;align-self:flex-start">✕</button></div>
+      ${p.note ? `<div class="note" style="margin-top:10px"><b>좋은목 해설</b> ${esc(p.note)}</div>` : ""}
+      ${p.video_url ? `<p style="margin:10px 0 0"><a href="${esc(p.video_url)}" target="_blank" rel="noopener">▶ 이 판례 해설 영상 보기</a></p>` : ""}
+      ${sec("판시사항", p.holding)}${sec("판결요지", p.summary)}${sec("참조조문", p.refs)}
+      ${!p.holding && !p.summary && p.body ? sec("판결 내용(앞부분)", p.body.slice(0, 3000)) : ""}
+      <p style="margin:14px 0 0"><a href="${esc(p.원문)}" target="_blank" rel="noopener">국가법령정보센터에서 판결 전문 보기 ↗</a></p>
+      <p class="muted" style="font-size:12px;margin:8px 0 0">판례는 사건마다 사실관계가 달라 결론이 다를 수 있어요. 개별 사건은 전문가에게 확인하세요.</p>
+      ${ADMIN ? `<div class="note" style="margin-top:12px"><b>[관리자]</b> 해설·영상·순서
+        <textarea id="pmNote" rows="2" style="width:100%;margin-top:6px" placeholder="한 줄 해설 (내 말로)">${esc(p.note || "")}</textarea>
+        <input id="pmVideo" style="width:100%;margin-top:6px" placeholder="유튜브 주소 https://youtu.be/…" value="${esc(p.video_url || "")}">
+        <div style="display:flex;gap:8px;align-items:center;margin-top:6px;flex-wrap:wrap"><label><input type="checkbox" id="pmCur" ${p.curated ? "checked" : ""}> 대표 판례</label><label>순서 <input id="pmRank" type="number" value="${p.rank ?? 100}" style="width:70px"></label><button type="button" onclick="precSaveMeta('${esc(p.id)}')">저장</button><span id="pmMsg" class="muted"></span></div></div>` : ""}`;
+  } catch (e) { d.firstElementChild.innerHTML = `<div class="err">${esc(e.message)}</div><p><button type="button" onclick="this.closest('#precDlg').remove()">닫기</button></p>`; }
+}
+async function precPost(body) {
+  const r = await fetch("/api/account?prec=1", { method: "POST", headers: { "Content-Type": "application/json", ...adminH() }, body: JSON.stringify(body) });
+  const x = await r.json().catch(() => ({ 오류: `서버 오류(${r.status})` }));
+  if (!r.ok) throw new Error(x.오류 || "실패");
+  return x;
+}
+async function precSaveMeta(id) {
+  try { await precPost({ action: "meta", id, note: $("#pmNote").value, video_url: $("#pmVideo").value.trim(), curated: $("#pmCur").checked, rank: $("#pmRank").value }); $("#pmMsg").textContent = "저장됨"; for (const k in PREC_CACHE) delete PREC_CACHE[k]; }
+  catch (e) { $("#pmMsg").textContent = e.message; }
+}
+function precAdmin(topic = "유치권") {
+  const d = document.createElement("div");
+  d.id = "precDlg";
+  d.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:120;display:flex;align-items:center;justify-content:center;padding:16px";
+  const opts = ["유치권", "법정지상권", "분묘기지권", "대항력 있는 임차인"].map((t) => `<option ${t === topic ? "selected" : ""}>${t}</option>`).join("");
+  d.innerHTML = `<div class="card" style="max-width:560px;width:100%;margin:0;max-height:90vh;overflow:auto">
+    <div style="display:flex;justify-content:space-between"><h2 style="margin:0;font-size:18px">⚖️ 판례 관리 (관리자)</h2><button type="button" onclick="this.closest('#precDlg').remove()" style="background:none;color:var(--sub);font-size:20px">✕</button></div>
+    <p class="muted" style="font-size:13px">판례 내용은 법제처에서 가져와요. 다른 책의 요약·분류는 옮기지 말고, 사건번호만 넣으세요.</p>
+    <label>주제 <select id="paTopic">${opts}</select></label>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px"><button type="button" onclick="precRun('ping')">① 법제처 연결 확인</button><button type="button" onclick="precRun('seed')">② 이 주제 대법원 판례 불러오기</button></div>
+    <label style="display:block;margin-top:12px">③ 사건번호로 대표 판례 등록 (여러 개는 줄바꿈이나 쉼표로)<textarea id="paNos" rows="4" style="width:100%" placeholder="2008다70763&#10;2011다84298"></textarea></label>
+    <button type="button" onclick="precRun('add')">등록</button>
+    <pre id="paOut" style="white-space:pre-wrap;font-size:13px;background:#f6f5f1;border-radius:8px;padding:8px;margin-top:10px;max-height:240px;overflow:auto"></pre></div>`;
+  d.onclick = (e) => { if (e.target === d) d.remove(); };
+  document.body.appendChild(d);
+}
+async function precRun(action) {
+  const out = $("#paOut"); out.textContent = "처리 중… (사건번호가 많으면 1분쯤)";
+  try {
+    const x = await precPost({ action, topic: $("#paTopic").value, case_nos: $("#paNos")?.value || "", pages: 2 });
+    out.textContent = action === "add" ? x.결과.map((r) => `${r.사건번호} — ${r.결과}${r.사건명 ? " · " + r.사건명 : ""}`).join("\n") : JSON.stringify(x, null, 1);
+    for (const k in PREC_CACHE) delete PREC_CACHE[k];
+  } catch (e) { out.textContent = "⚠️ " + e.message; }
+}
 // ── 크레딧 · 친구 초대 ─────────────────────────────────────────
 async function claimRef() {
   let code = ""; try { code = localStorage.getItem("ref_code") || ""; } catch {}
@@ -1409,10 +1495,12 @@ function renderAuc(unit) {
       이런 물건은 <b>선순위 임차인 보증금 인수, 유치권, 대지권 미등기, 지분 경매, 위반건축물, 밀린 관리비</b> 같은 문제가 있는 경우가 많아요. 낙찰가 외에 수천만~수억 원을 더 떠안을 수 있어요.
       입찰 전 <b>${a.src === "onbid" ? "온비드 물건 상세의 '재산명세'·'임대차 정보'" : "매각물건명세서의 '인수되는 권리'와 '임차인 현황'"}</b>을 꼭 보고, 처음이라면 법무사·변호사 등 전문가에게 권리분석을 받으세요.</div>` : ""; })()}
     ${a.remarks ? `<div class="${risky ? "warn" : "note"}"><b>물건 비고</b>: ${esc(a.remarks)}${risky ? `<br>⚠️ 권리관계에 주의할 문구가 있어요. ${a.src === "onbid" ? "온비드 재산명세" : "매각물건명세서"}로 꼭 확인하세요.` : ""}</div>` : ""}
+    <div id="precBox"></div>
     ${rateBox(a)}
     ${cmp}
     ${a.src === "onbid" ? `<div class="note">공매는 낙찰가 외에 <b>명도(점유자 내보내기) 비용·밀린 관리비·인수할 권리</b>가 더해질 수 있어요. 입찰 전 온비드 물건 상세의 <b>재산명세·감정평가서·공고문</b>을 꼭 확인하세요. 이 화면은 공개 정보를 정리한 참고자료이며 권리분석·감정평가가 아닙니다. <a href="https://www.onbid.co.kr" target="_blank" rel="noopener">온비드 바로가기</a></div>` : `<div class="note">경매는 낙찰가 외에 <b>인수할 권리(선순위 임차인 보증금, 유치권 등)·명도 비용·밀린 관리비</b>가 더해질 수 있어요. 입찰 전 대법원 법원경매정보에서 <b>매각물건명세서·현황조사서·감정평가서</b>를 꼭 확인하세요. 이 화면은 공개 정보를 정리한 참고자료이며 권리분석·감정평가가 아닙니다. <a href="https://www.courtauction.go.kr" target="_blank" rel="noopener">법원경매정보 바로가기</a></div>`}
     <div id="aucDoc">${docBox()}</div></div>`;
+  fillPrecBox(a);
 }
 
 // ── 경매 서류: 법원 사이트 바로가기 + 올린 서류를 AI가 읽고 정리 (파일은 저장하지 않음)
@@ -1687,6 +1775,7 @@ function chatDraw(pending) {
       <small>${esc(g.org || "")}${g.end ? " · 마감 " + esc(g.end) : ""}${g.target ? " · 대상: " + esc(String(g.target).slice(0, 40)) : ""}</small><small style="color:var(--accent)">기업마당 공고 보기 ↗</small></div>`).join("")}</div>` : "") +
     (m.areas?.list?.length ? `<div class="links">${m.areas.list.map((a) => `<a href="#" onclick="event.preventDefault();openArea('${esc(a.코드)}', '${esc(String(m.areas.biz || "").replace(/'/g, ""))}')">📊 ${esc(a.상권)} 자세히 보기</a>`).join("")}</div>` : "") +
     (m.links?.length ? `<div class="links">${m.links.map((l) => `<a href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.기관)} ↗</a>`).join("")}</div>` : "") +
+    (m.precs?.length ? `<div style="margin-top:8px"><small class="muted">⚖️ 판례 (눌러서 보기)</small><div style="display:flex;flex-direction:column;gap:4px;margin-top:4px">${m.precs.map((p) => `<button type="button" class="hq" style="text-align:left" onclick="precOpen('${esc(p.id)}')">${esc(p.법원 || "대법원")} ${esc(p.사건번호 || "")} <span class="muted" style="font-size:12px">${esc(p.선고일 || "")} · ${esc(String(p.사건명 || "").slice(0, 30))}${p.영상 ? " · ▶영상" : ""}</span></button>`).join("")}</div></div>` : "") +
     (m.login && !USER ? `<div style="margin-top:8px"><button type="button" class="kakao" onclick="login()">카카오로 시작하기 (+20크레딧)</button></div>` : "") +
     (m.invite && USER ? `<div style="margin-top:8px"><button type="button" class="star" onclick="openCredits()">🎁 친구 초대하고 크레딧 받기</button></div>` : "");
   CHAT.forEach((m, i) => h += m.role === "divider" ? `<div class="muted" style="text-align:center;font-size:12px;margin:4px 0">── ${esc(m.content)} ──</div>` : m.role === "user" ? `<div class="mg u">${esc(m.content)}</div>` : `<div class="mg a">${md(m.content)}${extra(m)}<span style="display:flex;gap:12px"><button type="button" class="cp" data-c="${i}">복사</button><button type="button" class="cp" data-s="${i}">공유</button></span></div>`);
@@ -1714,7 +1803,7 @@ async function chatSend(q) {
     if (!r.ok) { const er = new Error(x.오류 || "AI 상담 오류"); er.login = x.로그인권유; er.empty = x.크레딧부족; throw er; }
     creditNote(x);
     const tail = x.남은크레딧 == null ? "" : !x.회원 ? `\n\n(체험 크레딧 ${x.남은크레딧}개 남음 · 로그인하면 20크레딧)` : x.남은크레딧 <= 3 ? `\n\n(남은 크레딧 ${x.남은크레딧}개)` : "";
-    CHAT.push({ role: "assistant", content: x.답변 + tail, login: !x.회원 && x.남은크레딧 != null && x.남은크레딧 <= 1, items: x.물건 || null, total: x.찾은건수 || 0, links: x.지원기관 || null, programs: x.공고 || null, areas: x.상권 || null });
+    CHAT.push({ role: "assistant", content: x.답변 + tail, login: !x.회원 && x.남은크레딧 != null && x.남은크레딧 <= 1, items: x.물건 || null, total: x.찾은건수 || 0, links: x.지원기관 || null, programs: x.공고 || null, areas: x.상권 || null, precs: x.판례 || null });
     saveChatHistory();
   } catch (e) {
     CHAT.pop(); CHAT.push({ role: "user", content: q }); CHAT.push({ role: "assistant", content: "⚠️ " + e.message, login: !!e.login, invite: !!e.empty });
@@ -1725,7 +1814,7 @@ let CHAT_LOADED = false, CHAT_SAVE_T = null;
 const slimMsg = (m) => ({ role: m.role, content: String(m.content).slice(0, 6000),
   ...(m.items?.length ? { items: m.items.slice(0, 8).map((i) => ({ id: i.id, print_case_no: i.print_case_no, sigungu: i.sigungu, dong: i.dong, building_name: i.building_name, floor: i.floor, pyeong: i.pyeong, area_m2: i.area_m2, min_price: i.min_price, fail_count: i.fail_count, sale_date: i.sale_date, risky: i.risky })), total: m.total || 0 } : {}),
   ...(m.programs?.length ? { programs: m.programs.slice(0, 8).map((g) => ({ title: g.title, org: g.org, end: g.end, target: g.target, url: g.url })) } : {}),
-  ...(m.links?.length ? { links: m.links.slice(0, 10) } : {}), ...(m.areas ? { areas: m.areas } : {}) });
+  ...(m.links?.length ? { links: m.links.slice(0, 10) } : {}), ...(m.areas ? { areas: m.areas } : {}), ...(m.precs?.length ? { precs: m.precs.slice(0, 8) } : {}) });
 async function loadChatHistory() {
   if (!USER || CHAT_LOADED) return; CHAT_LOADED = true;
   const { data, error } = await SB.from("chat_history").select("messages,updated_at").eq("user_id", USER.id).maybeSingle();
@@ -1813,7 +1902,7 @@ else if (aucId) { setMode("aucDetail"); fetch("/api/auctions?id=" + encodeURICom
 else if (q) { setMode("addr"); $("#addr").value = q; run(q); }
 else setMode("home");
 initAuth();
-if (ADMIN) document.querySelector("header h1").insertAdjacentHTML("beforeend", ` <span class="pill mid" style="font-size:12px;vertical-align:middle">관리자 모드 <a href="?admin=off" style="color:inherit">끄기</a></span>`);
+if (ADMIN) document.querySelector("header h1").insertAdjacentHTML("beforeend", ` <span class="pill mid" style="font-size:12px;vertical-align:middle">관리자 모드 <a href="?admin=off" style="color:inherit">끄기</a> · <a href="#" onclick="event.preventDefault();precAdmin()" style="color:inherit">판례 관리</a></span>`);
 </script>
 </body>
 </html>
