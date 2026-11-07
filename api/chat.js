@@ -46,6 +46,12 @@ const SYSTEM = `당신은 상권 분석 사이트 "좋은목"의 AI 상담원입
 - 이 사이트의 "환산월세" = 월세 + 보증금 × 연 6% ÷ 12 (예: 보증금 1억·월세 50만 → 50만 + 50만 = 100만 원/월). 보증금이 다른 계약을 같은 기준으로 비교하려는 참고 계산이고, 6%는 시장 전월세전환율을 어림한 값이라 지역·시기마다 다를 수 있다고 설명하세요. 단순 임대수익률 = ㎡당 환산월세 × 12 ÷ ㎡당 매매가(세금·관리비·공실 제외).
 - "환산보증금"(상가건물 임대차보호법)은 다른 개념입니다: 보증금 + 월세 × 100. 법 적용 범위를 따질 때 쓰며, 서울 9억, 수도권 과밀억제권역·부산 6억9천만, 광역시 등 5억4천만, 그 밖 3억7천만 원 이하면 법 전체가 적용되고, 넘어도 대항력·계약갱신요구권(10년)·권리금 회수기회 보호는 적용됩니다. 두 개념을 헷갈리지 않게 구분해 설명하세요.`;
 
+const FREE_NOTE = `
+
+[무료 모드]
+- 이 사용자는 지금 크레딧이 없어 경매 물건·상권 숫자·공고·판례 같은 자료 조회 도구를 쓸 수 없습니다. 사이트 사용법, 용어·제도 설명, 판단할 때 볼 점처럼 일반 지식으로 답할 수 있는 것만 답하세요.
+- 실제 숫자나 물건 목록이 필요한 질문이면 지어내지 말고, 화면의 무료 기능("주소로 분석", "동네·업종 분석", "경매 물건 찾기", "창업 지원사업")에서 바로 볼 수 있다고 안내하고, 자료를 찾아 정리받으려면 크레딧이 필요하다고 짧게 알려 주세요.`;
+
 const SYSTEM_TOOLS = `
 
 [도구 사용]
@@ -218,22 +224,35 @@ export default async function handler(req, res) {
   if (!msgs.length || msgs[msgs.length - 1].role !== "user") return res.status(400).json({ 오류: "질문이 없습니다." });
   while (msgs[0].role !== "user") msgs.shift();
 
-  // 크레딧 확인·차감 (AI가 실패하면 되돌려 줌)
+  // 크레딧: 일단 1 차감 → 우리 자료를 실제로 찾아본 답변만 1크레딧, 설명만 한 답변은 하루 무료 횟수 안에서 되돌려 줌
+  //        크레딧이 없어도 무료 횟수가 남아 있으면 "설명만" 하는 무료 모드로 답함
   const pay = await spend(req, "chat");
-  if (!pay.ok) return res.status(pay.error.status).json(pay.error.body);
+  const ipRaw = String(req.headers["x-forwarded-for"] || req.socket?.remoteAddress || "").split(",")[0].trim();
+  const FREE_DAILY = pay.me?.id ? Number(process.env.CHAT_FREE_MEMBER || 20) : Number(process.env.CHAT_FREE_GUEST || 5);
+  const SITE_CAP = Number(process.env.CREDIT_SITE_DAILY || 200);
+  const freeKey = hash("free|" + (pay.me?.id ? "u|" + pay.me.id : "g|" + String(req.headers["x-guest-id"] || "").slice(0, 64) + "|" + ipRaw) + "|" + SB_KEY.slice(-12));
+  const useFree = async () => { try { const u = await bump(freeKey); return { ok: u.mine <= FREE_DAILY && u.total <= SITE_CAP, left: Math.max(FREE_DAILY - u.mine, 0) }; } catch { return { ok: false, left: 0 }; } };
+  let freeMode = false, freeLeft = null;
+  if (!pay.ok) {
+    if (pay.error.status === 402 && ["empty", "guest"].includes(pay.error.why)) {
+      const f = await useFree();
+      if (!f.ok) return res.status(402).json({ ...pay.error.body, 오류: pay.error.body.오류 + ` 오늘 무료 질문(${FREE_DAILY}번)도 다 썼어요.` });
+      freeMode = true; freeLeft = f.left;
+    } else return res.status(pay.error.status).json(pay.error.body);
+  }
 
   const context = clip(body.context, 9000) || "(아직 조회한 주소가 없습니다)";
   try {
     const convo = [...msgs];
-    let found = null, support = null, programs = null, areas = null, precs = null, d;
+    let found = null, support = null, programs = null, areas = null, precs = null, d, usedData = false;
     const base = `https://${req.headers["x-forwarded-host"] || req.headers.host}`;
     for (let step = 0; step < 4; step++) {
       const r = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
         headers: { "x-api-key": API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
         body: JSON.stringify({
-          model: MODEL, max_tokens: 3000, tools: TOOLS,
-          system: `${SYSTEM}${SYSTEM_TOOLS}\n\n[현재 화면 자료]\n${context}`,
+          model: MODEL, max_tokens: 3000, ...(freeMode ? {} : { tools: TOOLS }),
+          system: `${SYSTEM}${freeMode ? FREE_NOTE : SYSTEM_TOOLS}\n\n[현재 화면 자료]\n${context}`,
           messages: convo,
         }),
         signal: AbortSignal.timeout(50000),
@@ -241,7 +260,7 @@ export default async function handler(req, res) {
       d = await r.json();
       if (!r.ok) {
         const msg = d?.error?.message || "";
-        await pay.refund();
+        if (pay.ok) await pay.refund();
         if (/credit|balance|billing/i.test(msg)) return res.status(503).json({ 오류: "지금 AI 상담을 쓸 수 없어요. 잠시 뒤 다시 이용해 주세요. (관리자: Anthropic 콘솔 잔액·한도 확인)" });
         return res.status(502).json({ 오류: `AI 응답 오류(${r.status}): ${msg.slice(0, 200)}` });
       }
@@ -250,6 +269,7 @@ export default async function handler(req, res) {
       const results = [];
       for (const u of uses) {
         let out;
+        if (u.name !== "startup_support") usedData = true;   // 고정 목록 말고 실제 자료를 찾아봄
         try {
           if (u.name === "search_auctions") { out = await searchAuctions(u.input || {}); found = out; }
           else if (u.name === "startup_support") { out = startupSupport(u.input || {}); support = out; }
@@ -267,10 +287,14 @@ export default async function handler(req, res) {
     }
     const text = (d.content || []).filter((c) => c.type === "text").map((c) => c.text).join("\n").trim();
     const cut = d.stop_reason === "max_tokens" ? "\n\n(답변이 길어 여기서 끊겼어요. \"이어서\"라고 보내면 계속해요.)" : "";
-    return res.status(200).json({ 답변: (text || "답변을 만들지 못했어요. 다시 물어봐 주세요.") + cut, 남은크레딧: pay.left, 회원: !!pay.me.id,
+    // 자료 조회 없이 설명만 했으면 하루 무료 횟수 안에서 크레딧을 되돌려 줌
+    let charged = pay.ok && !pay.free, left = pay.ok ? pay.left : (pay.error.body.남은크레딧 ?? 0);
+    if (charged && !usedData) { const f = await useFree(); if (f.ok) { await pay.refund(); charged = false; left = (left ?? 0) + 1; freeLeft = f.left; } }
+    return res.status(200).json({ 답변: (text || "답변을 만들지 못했어요. 다시 물어봐 주세요.") + cut, 남은크레딧: left, 회원: !!pay.me.id,
+      차감: charged ? 1 : 0, 무료남음: freeLeft, 무료모드: freeMode,
       ...(found ? { 물건: found.물건.map(({ raw, ...x }) => x), 찾은건수: found.찾은건수 } : {}), ...(support ? { 지원기관: support.기관 } : {}), ...(programs?.공고?.length ? { 공고: programs.공고 } : {}), ...(areas ? { 상권: areas } : {}), ...(precs ? { 판례: precs } : {}) });
   } catch (e) {
-    await pay.refund();
+    if (pay.ok) await pay.refund();
     return res.status(504).json({ 오류: "AI 응답이 늦어요. 잠시 후 다시 시도해 주세요. (크레딧은 돌려 드렸어요)" });
   }
 }
