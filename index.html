@@ -1239,7 +1239,27 @@ function drawUser(newCnt) {
   if (!SB) { box.innerHTML = ""; return; }
   box.innerHTML = USER
     ? `<span class="muted">${esc(nick())}님${PROFILE?.tier === "paid" ? " · 유료회원" : ""}</span><button type="button" class="star" onclick="openCredits()" title="크레딧·친구 초대">💎 ${PROFILE?.tier === "paid" || PROFILE?.tier === "admin" ? "무제한" : (PROFILE?.credits ?? "…")}</button><button type="button" class="star" onclick="setMode('watch')">⭐ 관심 ${WATCH.size}${newCnt ? ` <b style="color:var(--bad)">· 새 소식 ${newCnt}</b>` : ""}</button><button type="button" style="background:none;color:var(--sub);border:1px solid var(--line)" onclick="logout()">로그아웃</button>`
-    : `${WATCH.size ? `<button type="button" class="star" onclick="setMode('watch')">⭐ 관심 ${WATCH.size}</button>` : ""}<button type="button" class="kakao" onclick="login()">카카오로 시작하기</button>`;
+    : `${WATCH.size ? `<button type="button" class="star" onclick="setMode('watch')">⭐ 관심 ${WATCH.size}</button>` : ""}<button type="button" class="kakao" onclick="login()">카카오로 시작하기</button><a href="#" onclick="event.preventDefault();emailLogin()" style="font-size:12px;color:var(--sub);margin-left:4px">이메일 로그인</a>`;
+}
+// 이메일 로그인 (결제 심사용 계정 등 운영자가 만든 계정만. 회원가입은 카카오로)
+function emailLogin() {
+  const d = document.createElement("div");
+  d.id = "mailDlg";
+  d.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:120;display:flex;align-items:center;justify-content:center;padding:16px";
+  d.innerHTML = `<form class="card" style="max-width:360px;width:100%;margin:0" onsubmit="event.preventDefault();emailLoginGo()">
+    <div style="display:flex;justify-content:space-between"><h2 style="margin:0;font-size:17px">이메일 로그인</h2><button type="button" onclick="this.closest('#mailDlg').remove()" style="background:none;color:var(--sub);font-size:20px">✕</button></div>
+    <p class="muted" style="font-size:12.5px;margin:6px 0 10px">운영자가 발급한 계정용이에요. 처음이시면 <a href="#" onclick="event.preventDefault();login()">카카오로 시작하기</a>를 눌러 주세요.</p>
+    <input id="mlId" type="email" autocomplete="username" placeholder="이메일" style="width:100%;padding:10px;margin-bottom:6px" required>
+    <input id="mlPw" type="password" autocomplete="current-password" placeholder="비밀번호" style="width:100%;padding:10px;margin-bottom:8px" required>
+    <button type="submit" style="width:100%;padding:10px">로그인</button><div id="mlMsg" style="font-size:13px;margin-top:6px;color:var(--bad)"></div></form>`;
+  d.onclick = (e) => { if (e.target === d) d.remove(); };
+  document.body.appendChild(d); $("#mlId").focus();
+}
+async function emailLoginGo() {
+  if (!SB) { $("#mlMsg").textContent = "로그인을 쓸 수 없어요."; return; }
+  const { error } = await SB.auth.signInWithPassword({ email: $("#mlId").value.trim(), password: $("#mlPw").value });
+  if (error) { $("#mlMsg").textContent = "이메일이나 비밀번호가 맞지 않아요."; return; }
+  $("#mailDlg")?.remove();
 }
 async function login() {
   if (!SB) return alertBox("로그인을 아직 쓸 수 없어요.");
